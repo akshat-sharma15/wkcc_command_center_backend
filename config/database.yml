@@ -1,0 +1,64 @@
+# PostgreSQL configuration, driven entirely by environment variables (see
+# .env.example / scripts/dev_env.sh) so this file never needs manual editing
+# between machines.
+#
+# This app owns three logical databases on the same local Postgres server:
+#   primary         - cross-cutting app tables (ApiClient, ...)
+#   operations      - Vehicle, Trip, Hub, Warehouse, Package, PaymentDue,
+#                     WorkforceMember (Stage 2)
+#   command_center  - events, alert rules, integrations, notifications
+#                     (Stage 3+; migrated to an empty schema for now)
+#
+# Hard rule (see ARCHITECTURE.md): no foreign key or ActiveRecord association
+# may cross the operations <-> command_center boundary. Cross-domain lookups
+# always resolve entity_type/entity_id in a service object, never a DB join.
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+  host: <%= ENV.fetch("PGHOST", "localhost") %>
+  port: <%= ENV.fetch("PGPORT", 55432) %>
+  username: <%= ENV.fetch("PGUSER", "wkcc_backend_app") %>
+  password: <%= ENV["PGPASSWORD"] %>
+
+development:
+  primary:
+    <<: *default
+    database: <%= ENV.fetch("PRIMARY_DB_NAME", "wkcc_backend_development") %>
+    migrations_paths: db/migrate
+  operations:
+    <<: *default
+    database: <%= ENV.fetch("OPERATIONS_DB_NAME", "wkcc_ops_development") %>
+    migrations_paths: db/operations_migrate
+  command_center:
+    <<: *default
+    database: <%= ENV.fetch("COMMAND_CENTER_DB_NAME", "wkcc_cc_development") %>
+    migrations_paths: db/command_center_migrate
+
+test:
+  primary:
+    <<: *default
+    database: <%= ENV.fetch("PRIMARY_TEST_DB_NAME", "wkcc_backend_test") %>
+    migrations_paths: db/migrate
+  operations:
+    <<: *default
+    database: <%= ENV.fetch("OPERATIONS_TEST_DB_NAME", "wkcc_ops_test") %>
+    migrations_paths: db/operations_migrate
+  command_center:
+    <<: *default
+    database: <%= ENV.fetch("COMMAND_CENTER_TEST_DB_NAME", "wkcc_cc_test") %>
+    migrations_paths: db/command_center_migrate
+
+production:
+  primary:
+    <<: *default
+    database: <%= ENV.fetch("PRIMARY_DB_NAME") %>
+    migrations_paths: db/migrate
+  operations:
+    <<: *default
+    database: <%= ENV.fetch("OPERATIONS_DB_NAME") %>
+    migrations_paths: db/operations_migrate
+  command_center:
+    <<: *default
+    database: <%= ENV.fetch("COMMAND_CENTER_DB_NAME") %>
+    migrations_paths: db/command_center_migrate
