@@ -20,7 +20,7 @@ gem "tzinfo-data", platforms: %i[ windows jruby ]
 # request body to fail with `ArgumentError: wrong number of arguments`.
 # Ruby 3.3 ships json ~> 2.9 by default; pin to that line explicitly so a
 # transitive dependency can't silently pull in 3.x again.
-gem "json", "~> 2.9"
+gem "json", "~> 3.0"
 
 # Reduces boot times through caching; required in config/boot.rb
 gem "bootsnap", require: false
