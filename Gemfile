@@ -33,7 +33,7 @@ gem "redis", "~> 5.3"
 # Pinned: Sidekiq 7.3.x's scheduler thread breaks silently against
 # connection_pool 3.0+ (keyword-only `pop` vs Sidekiq's positional call).
 gem "sidekiq", "~> 7.3"
-gem "connection_pool", "~> 2.5"
+gem "connection_pool", "~> 3.0"
 
 # Lightweight pagination for index actions.
 gem "pagy", "~> 9.0"
