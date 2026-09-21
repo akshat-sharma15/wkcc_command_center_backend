@@ -23,7 +23,9 @@ hubs.each_value do |hub|
         role_type: role,
         hub: hub,
         shift: shifts.sample,
-        attendance_status: attendance_weights.flat_map { |status, w| [status] * w }.sample
+        attendance_status: attendance_weights.flat_map { |status, w| [status] * w }.sample,
+        allow_alerts: true,
+        alertable_fields: %w[attendance_status]
       )
     end
   end

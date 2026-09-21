@@ -52,10 +52,21 @@ does not touch Superset's own database:
 - **`primary`** (`ApplicationRecord`) — cross-cutting app tables.
   `ApiClient` today; nothing else until later stages.
 - **`operations`** (`OperationsRecord`) — Vehicle, Trip, Hub, Warehouse,
-  Package, PaymentDue, WorkforceMember (Stage 2).
-- **`command_center`** (`CommandCenterRecord`) — `EventDefinition` and
-  `Alert` (Stage 3). Integrations, notifications, and event occurrences
-  are not built yet (Stage 4+).
+  Package, PaymentDue, WorkforceMember (Stage 2); `AlertRule`, `Alert`,
+  and the alert-configuration columns on five of those models (alert-system
+  refactor Phase 1); `EventDefinition` (Phase 3 — moved here from
+  `command_center` specifically so `AlertRule.belongs_to :event_definition,
+  optional: true` could be a real FK instead of a cross-database
+  reference). All alert-related schema and persistence lives here.
+- **`command_center`** (`CommandCenterRecord`) — owns no application
+  tables anymore. An unused `alerts` table (the old `Alert`, previously
+  `belongs_to :event_definition`) still exists here — its Ruby model/
+  controller/API were removed as obsolete back in Phase 1, and the table
+  itself was deliberately left in place (cleanup is a separate decision);
+  its FK to `event_definitions` was dropped in the same migration that
+  moved `EventDefinition` out, since Postgres won't drop a table something
+  still references. Integrations, notifications, and event occurrences are
+  not built yet (Stage 4+).
 
 **Hard rule:** no foreign key or ActiveRecord association may cross the
 `operations` ↔ `command_center` boundary. The Stage 4+ event-occurrence
@@ -98,10 +109,9 @@ admin UI for token issuance — tokens are issued from the Rails console
 (`current_api_client.has_scope?(...)`); no separate scopes table until an
 admin UI actually needs scope metadata.
 
-## Event and Alert definitions (Stage 3)
+## Event definitions (Stage 3)
 
-Two models in the `command_center` database, deliberately with **no**
-association back into `operations`:
+One model in the `command_center` database:
 
 - **`EventDefinition`** — `name` (unique), `group`, `event_type`. `group`
   and `event_type` are validated against a fixed, code-defined vocabulary
@@ -112,27 +122,59 @@ association back into `operations`:
   value of `event_type`, not a `Capacity` model, and the same applies to
   every other group/type name that happens to echo an operational concept
   (Hub, Truck, Accident, ...).
-- **`Alert`** — `name`, `belongs_to :event_definition`, `role` (plain
-  string for now — see below), `description`. No `integration` field yet;
-  that is added when Stage 3+/7+ builds Slack/SMS/WhatsApp/Email delivery.
 
-Deleting an `EventDefinition` still referenced by an `Alert` is rejected
-(`dependent: :restrict_with_error`) — `422` from the API, not a silent
-cascade.
+## Alert-system refactor Phase 1 (operations DB)
 
-Extensibility for later stages: when real operational entities are wired
-up (Stage 4+ event ingestion), an `EventOccurrence` will reference both an
-`EventDefinition` and the originating operational record via a loose
-`entity_type`/`entity_id` pair — never a foreign key — for exactly the
-same cross-database reason `operations` and `command_center` are already
-split.
+The original `Alert` (`command_center`, `belongs_to :event_definition`,
+`role` + `description`) was replaced — alerts are no longer tied to
+`EventDefinition` at all. The new design targets business-model fields
+directly, entirely within the `operations` database:
+
+- **Five alertable models** — `Vehicle`, `Hub`, `Package`, `PaymentDue`,
+  `WorkforceMember` — each gained two columns: `allow_alerts` (boolean,
+  default `false`) and `alertable_fields` (Postgres `string[]`, default
+  `[]`). A record opts into alerting and declares which of its own
+  columns may be targeted. **Trip is deliberately excluded** (explicit
+  product decision). A "routes" group and a new `Route` model were
+  considered (since `Trip` was off the table) and then deliberately
+  dropped — there was no independent business-domain need for a `Route`
+  entity beyond serving the alert system, and a model shouldn't be
+  invented solely for that. If a genuine `Route`/lane entity is needed
+  later, add it on its own merits and then extend `ALERTABLE_MODELS`.
+- **`AlertRule::ALERTABLE_MODELS`** — a plain frozen hash (`"vehicles" =>
+  Vehicle`, etc.), the server-side allowlist/security boundary for which
+  models a rule's `group` may reference. Deliberately *not* an
+  `AlertResource`/`AlertResourceField` table — this is application code,
+  not database data — and frontend input is never `constantize`d;
+  `AlertRule#target_model` always resolves through this hash.
+- **`AlertRule`** — `name`, `group`, `field`, `operator`, `value` (jsonb),
+  `severity`, `notify`, `recipient_type`, `recipient_id`, `enabled`,
+  `created_by_user_id`. Validates `group` is an allowlisted key, `field`
+  is an actual column on that group's model, and `field` is listed in
+  `alertable_fields` on at least one `allow_alerts: true` record of that
+  model — i.e. `field_must_be_alertable_on_target_model` queries
+  `Model.where(allow_alerts: true).where("? = ANY (alertable_fields)",
+  field)`. `recipient_type`/`recipient_id` are only required when
+  `notify` is true; `recipient_id` is a plain bigint (e.g. a Superset role
+  ID) with no FK, since it may point outside this database entirely.
+- **`Alert`** — `belongs_to :alert_rule`, plus `group`/`record_id` (the
+  triggering record, resolved the same way as `AlertRule.group` — never a
+  real FK, since the target table varies per group), `field`,
+  `expected_value`/`actual_value`, `severity`, `status` (`open` /
+  `acknowledged` / `resolved`), `triggered_at`, `resolved_at`, `metadata`
+  (jsonb). `AlertRule has_many :alerts, dependent: :restrict_with_error`.
+
+**Not built yet** (later phases): no `/api/v1/alerts` or
+`/api/v1/alert_rules` route, no `AlertEvaluationJob`, no automatic
+triggering, no Slack/notification delivery, no SSE. Phase 1 is the data
+layer only.
 
 ## Deferred: read-only Superset identity lookup
 
-Not built yet. `Alert.role` is a plain string for this stage — not
-validated against Superset, so Event/Alert APIs are not blocked on it (per
-explicit Stage 3 scope). When a later stage needs to resolve Superset
-users/roles (e.g. for alert recipient resolution), the intended design is:
+Not built yet. `AlertRule.recipient_id` is a plain bigint for this stage —
+not validated against Superset, so nothing is blocked on it. When a later
+stage needs to resolve Superset users/roles (e.g. for alert recipient
+resolution), the intended design is:
 
 - A dedicated, **read-only** Postgres role (e.g. `wkcc_backend_ro`) granted
   `SELECT` only on Superset's `ab_user`, `ab_role`, `ab_user_role` tables
@@ -160,15 +202,44 @@ that subscribes to Redis Pub/Sub per-connection — explicitly not
 WebSockets at this stage, but designed so WebSockets could supplement or
 replace SSE later without redesigning the event domain (the event
 occurrence, publisher, and subscriber layers are already separated by
-directory: `app/publishers/`, `app/subscribers/`, currently empty) — and
-the `Integration` model (Slack/SMS/WhatsApp/Email, only Slack functional
-initially) plus the `integration` field on `Alert`, deliberately deferred
-out of Stage 3.
+directory: `app/publishers/`, `app/subscribers/`, currently empty).
 
 The event simulator (Stage 4) will be a self-rescheduling Sidekiq job that
 picks real existing records (never fabricated IDs) and pushes them through
 the exact same `Events::IngestEvent` pipeline a real external API call
 would use — no shortcut path.
+
+## Slack integration (connect/disconnect only — no delivery)
+
+`Integration` (`command_center` — reviving that database's originally
+intended purpose now that `EventDefinition` has moved out; see above) and
+`SlackOauthState` back a standard OAuth v2 flow:
+`GET /api/v1/integrations/slack{,/connect,/callback}` and
+`DELETE /api/v1/integrations/slack/:id` — see
+`app/controllers/api/v1/slack_integrations_controller.rb` and
+`app/services/slack_oauth_client.rb` (stdlib `Net::HTTP`, no HTTP client
+gem). `Integration#bot_token` is encrypted at rest via Rails 8's built-in
+`ActiveRecord::Encryption` (`encrypts :bot_token`), whose keys live in
+`config/credentials.yml.enc` (committed — it's encrypted; `config/master.key`
+decrypts it and is gitignored, never committed). The token is never
+included in any API response (see `IntegrationSerializer`) or logged.
+
+OAuth `state` is DB-backed (`SlackOauthState`, one-time-use, 10-minute
+TTL) rather than session/cookie-based: the frontend (`:9000`) and this API
+(`:3001`) are different origins with no shared cookie domain, and the
+callback is a real cross-site browser redirect from `slack.com` — a
+`SameSite=None` cookie would need HTTPS to survive that round-trip, which
+local dev doesn't have. Reconnecting the workspace updates the single
+`provider: "slack"` row rather than creating a duplicate (`provider` is
+unique) — there is one Integration per provider, matching the product
+surface of "is Slack connected", not a history of connection attempts.
+Disconnecting revokes the token with Slack (`auth.revoke`, best-effort)
+and clears `bot_token`/`bot_user_id`/`scope` locally, but keeps the row
+(status `disconnected`) rather than deleting it outright.
+
+**Not built**: `chat.postMessage`, any Slack notification/delivery
+job, alert-to-Slack routing, Slack Block Kit templates, interactive
+actions, or the Slack Events API. This is connect/disconnect only.
 
 ## Project layout
 
@@ -185,7 +256,7 @@ app/
 db/
   migrate/                 primary database
   operations_migrate/      operations database
-  command_center_migrate/  command_center database (EventDefinition, Alert — Stage 3)
+  command_center_migrate/  command_center database (EventDefinition — Stage 3)
   seeds/                   one file per entity, realistic non-uniform data
 scripts/
   dev_env.sh    optional; only for bundle install's pg_config PATH or raw

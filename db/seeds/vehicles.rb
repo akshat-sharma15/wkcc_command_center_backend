@@ -21,6 +21,8 @@ status_weights = { "active" => 7, "maintenance" => 2, "out_of_service" => 1 }
     vendor: vendors.sample,
     current_location: hub.location,
     hub: hub,
-    driver: driver
+    driver: driver,
+    allow_alerts: true,
+    alertable_fields: %w[status capacity]
   )
 end

@@ -16,6 +16,8 @@ status_weights = { "pending" => 5, "paid" => 6, "overdue" => 3 }
     vendor: vendors.sample,
     amount: rand(5_000..250_000),
     due_date: due_date,
-    payment_status: status
+    payment_status: status,
+    allow_alerts: true,
+    alertable_fields: %w[payment_status amount]
   )
 end

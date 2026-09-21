@@ -10,11 +10,64 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
+  create_table "alert_rules", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id"
+    t.boolean "enabled", default: true, null: false
+    t.bigint "event_definition_id"
+    t.string "field", null: false
+    t.string "group", null: false
+    t.string "name", null: false
+    t.string "notification_channels", default: [], null: false, array: true
+    t.boolean "notify", default: false, null: false
+    t.string "operator", null: false
+    t.bigint "recipient_id"
+    t.string "recipient_type"
+    t.string "severity", null: false
+    t.datetime "updated_at", null: false
+    t.jsonb "value"
+    t.index ["enabled"], name: "index_alert_rules_on_enabled"
+    t.index ["event_definition_id"], name: "index_alert_rules_on_event_definition_id"
+    t.index ["group"], name: "index_alert_rules_on_group"
+  end
+
+  create_table "alerts", force: :cascade do |t|
+    t.string "actual_value"
+    t.bigint "alert_rule_id", null: false
+    t.datetime "created_at", null: false
+    t.string "expected_value"
+    t.string "field", null: false
+    t.string "group", null: false
+    t.jsonb "metadata"
+    t.bigint "record_id", null: false
+    t.datetime "resolved_at"
+    t.string "severity", null: false
+    t.string "status", default: "open", null: false
+    t.datetime "triggered_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["alert_rule_id"], name: "index_alerts_on_alert_rule_id"
+    t.index ["group", "record_id"], name: "index_alerts_on_group_and_record_id"
+    t.index ["group"], name: "index_alerts_on_group"
+    t.index ["status"], name: "index_alerts_on_status"
+  end
+
+  create_table "event_definitions", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.string "group", null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.index ["group", "event_type"], name: "index_event_definitions_on_group_and_event_type"
+    t.index ["name"], name: "index_event_definitions_on_name", unique: true
+  end
+
   create_table "hubs", force: :cascade do |t|
+    t.string "alertable_fields", default: [], null: false, array: true
+    t.boolean "allow_alerts", default: false, null: false
     t.integer "available_parking"
     t.integer "capacity"
     t.string "code", null: false
@@ -29,6 +82,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
   end
 
   create_table "packages", force: :cascade do |t|
+    t.string "alertable_fields", default: [], null: false, array: true
+    t.boolean "allow_alerts", default: false, null: false
     t.datetime "created_at", null: false
     t.integer "damaged_quantity", default: 0, null: false
     t.integer "expected_quantity", default: 0, null: false
@@ -47,6 +102,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
   end
 
   create_table "payment_dues", force: :cascade do |t|
+    t.string "alertable_fields", default: [], null: false, array: true
+    t.boolean "allow_alerts", default: false, null: false
     t.decimal "amount", precision: 12, scale: 2, null: false
     t.datetime "created_at", null: false
     t.date "due_date", null: false
@@ -76,6 +133,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
   end
 
   create_table "vehicles", force: :cascade do |t|
+    t.string "alertable_fields", default: [], null: false, array: true
+    t.boolean "allow_alerts", default: false, null: false
     t.integer "capacity"
     t.datetime "created_at", null: false
     t.string "current_location"
@@ -105,6 +164,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
   end
 
   create_table "workforce_members", force: :cascade do |t|
+    t.string "alertable_fields", default: [], null: false, array: true
+    t.boolean "allow_alerts", default: false, null: false
     t.string "attendance_status", default: "present", null: false
     t.datetime "created_at", null: false
     t.bigint "hub_id", null: false
@@ -119,6 +180,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_133006) do
     t.index ["role_type"], name: "index_workforce_members_on_role_type"
   end
 
+  add_foreign_key "alert_rules", "event_definitions"
+  add_foreign_key "alerts", "alert_rules"
   add_foreign_key "packages", "trips"
   add_foreign_key "trips", "hubs", column: "destination_hub_id"
   add_foreign_key "trips", "hubs", column: "origin_hub_id"

@@ -1,9 +1,11 @@
 # Configurable event types the Command Center can raise alerts against.
-# Deliberately not an operational model (no Hub/Vehicle/etc table) — group
-# and event_type are just a controlled vocabulary. Real operational entities
-# are connected later via entity_type/entity_id on an EventOccurrence
-# (Stage 4+), never a direct association from here.
-class EventDefinition < CommandCenterRecord
+# Deliberately not an operational model in the "business entity" sense (no
+# Hub/Vehicle/etc-style table) — group and event_type are just a
+# controlled vocabulary. Moved from command_center to operations so
+# AlertRule (also operations) can hold a real FK to it — see
+# db/operations_migrate/20260922070000_create_operations_event_definitions.rb
+# for the data migration and has_many :alert_rules below.
+class EventDefinition < OperationsRecord
   GROUPS_AND_TYPES = {
     "Hubs" => [
       "Inbound Truck",
@@ -31,7 +33,7 @@ class EventDefinition < CommandCenterRecord
     ]
   }.freeze
 
-  has_many :alerts, dependent: :restrict_with_error
+  has_many :alert_rules, dependent: :nullify
 
   validates :name, presence: true, uniqueness: true
   validates :group, presence: true, inclusion: { in: GROUPS_AND_TYPES.keys }

@@ -28,11 +28,4 @@ RSpec.describe EventDefinition, type: :model do
       end
     end
   end
-
-  it "prevents destroying an event definition referenced by an alert" do
-    event = create(:event_definition)
-    create(:alert, event_definition: event)
-    expect(event.destroy).to be false
-    expect(event.errors[:base]).to be_present
-  end
 end

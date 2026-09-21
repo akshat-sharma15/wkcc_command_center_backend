@@ -9,5 +9,9 @@ HUBS = [
 ].freeze
 
 HUBS.each do |attrs|
-  Hub.find_or_create_by!(code: attrs[:code]) { |h| h.assign_attributes(attrs) }
+  Hub.find_or_create_by!(code: attrs[:code]) do |h|
+    h.assign_attributes(attrs)
+    h.allow_alerts = true
+    h.alertable_fields = %w[operational_status capacity parking_capacity available_parking]
+  end
 end

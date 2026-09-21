@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_18_140001) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_22_140001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -25,15 +25,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_18_140001) do
     t.index ["name"], name: "index_alerts_on_name"
   end
 
-  create_table "event_definitions", force: :cascade do |t|
+  create_table "integrations", force: :cascade do |t|
+    t.text "bot_token"
+    t.string "bot_user_id"
     t.datetime "created_at", null: false
-    t.string "event_type", null: false
-    t.string "group", null: false
-    t.string "name", null: false
+    t.boolean "enabled", default: true, null: false
+    t.string "provider", null: false
+    t.string "scope"
+    t.string "status", default: "disconnected", null: false
     t.datetime "updated_at", null: false
-    t.index ["group", "event_type"], name: "index_event_definitions_on_group_and_event_type"
-    t.index ["name"], name: "index_event_definitions_on_name", unique: true
+    t.string "workspace_id"
+    t.string "workspace_name"
+    t.index ["provider"], name: "index_integrations_on_provider", unique: true
   end
 
-  add_foreign_key "alerts", "event_definitions"
+  create_table "slack_oauth_states", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.string "state", null: false
+    t.datetime "updated_at", null: false
+    t.index ["state"], name: "index_slack_oauth_states_on_state", unique: true
+  end
 end

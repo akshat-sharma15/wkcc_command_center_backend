@@ -16,7 +16,27 @@ Rails.application.routes.draw do
       resources :finance, controller: "finance"
       resources :workforce_members
       resources :events
-      resources :alerts
+
+      # Alert-system refactor Phase 2: Alert Builder metadata + AlertRule
+      # CRUD. Kebab-case paths as specified for this feature (existing
+      # resources above use snake_case, e.g. workforce_members).
+      get "alert-resources" => "alert_resources#index"
+      get "alert-resources/:group/fields" => "alert_resources#fields"
+      get "alert-resources/:group/fields/:field/options" => "alert_resources#field_options"
+
+      get "alert-recipients/roles" => "alert_recipients#roles"
+      get "alert-recipients/users" => "alert_recipients#users"
+
+      resources :alert_rules, path: "alert-rules"
+      # No triggering/evaluation, notification delivery, or SSE yet —
+      # Phase 3+.
+
+      # Slack OAuth connect/status/disconnect only — no message delivery
+      # yet (see app/controllers/api/v1/slack_integrations_controller.rb).
+      get "integrations/slack" => "slack_integrations#show"
+      get "integrations/slack/connect" => "slack_integrations#connect"
+      get "integrations/slack/callback" => "slack_integrations#callback"
+      delete "integrations/slack/:id" => "slack_integrations#destroy"
     end
   end
 
