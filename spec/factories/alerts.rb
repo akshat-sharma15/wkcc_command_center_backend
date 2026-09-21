@@ -1,8 +1,13 @@
 FactoryBot.define do
   factory :alert do
-    sequence(:name) { |n| "Test Alert #{n}" }
-    role { "Logistics Manager" }
-    description { "Notify logistics team when this event occurs." }
-    event_definition
+    alert_rule
+    group { alert_rule.group }
+    record_id { 1 }
+    field { alert_rule.field }
+    expected_value { "FAILURE" }
+    actual_value { "FAILURE" }
+    severity { "critical" }
+    status { "open" }
+    triggered_at { Time.current }
   end
 end

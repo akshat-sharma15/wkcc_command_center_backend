@@ -51,12 +51,4 @@ RSpec.describe "Api::V1::Events", type: :request do
       headers: authenticated_headers
     expect(response).to have_http_status(:created)
   end
-
-  it "refuses to delete an event definition referenced by an alert" do
-    event = create(:event_definition)
-    create(:alert, event_definition: event)
-
-    delete "/api/v1/events/#{event.id}", headers: authenticated_headers
-    expect(response).to have_http_status(:unprocessable_content)
-  end
 end

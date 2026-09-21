@@ -48,7 +48,6 @@ DELETE /api/v1/<resource>/:id      destroy -> 204
 | Finance | `/api/v1/finance` | `PaymentDue` | `vendor`, `amount`, `due_date`, `payment_status` (pending/paid/overdue); response includes derived `aging_days` (not stored) |
 | Workforce | `/api/v1/workforce_members` | `WorkforceMember` | `identifier` (unique), `name`, `role_type` (guard/warehouse_worker/loader/supervisor/driver/other_staff), `hub_id`, `shift`, `attendance_status` (present/absent/on_leave) |
 | Events | `/api/v1/events` | `EventDefinition` | `name` (unique), `group`, `type` — see [Event groups/types](#event-groups-and-types) for the fixed vocabulary |
-| Alerts | `/api/v1/alerts` | `Alert` | `name`, `event_id` (→ `EventDefinition`), `role`, `description` |
 
 Create/update requests wrap params under the singular resource key, e.g.:
 
@@ -57,9 +56,10 @@ POST /api/v1/vehicles
 { "vehicle": { "number": "VH-1023", "vehicle_type": "truck", "hub_id": 1 } }
 ```
 
-Events and Alerts live in the `command_center` database, are independent of
-the `operations` database resources above, and carry no foreign key into
-them (see `ARCHITECTURE.md`).
+Events live in the `command_center` database, independent of the
+`operations` database resources above, with no foreign key into them (see
+`ARCHITECTURE.md`). `AlertRule`/`Alert` live in the `operations` database
+but have no API yet (see "Alerts — no API yet" below).
 
 ## Events API
 
@@ -155,121 +155,35 @@ curl -s -X PATCH http://localhost:3001/api/v1/events/1 \
 curl -s -X DELETE http://localhost:3001/api/v1/events/1
 ```
 
-`204 No Content` on success. `422` if any `Alert` still references this
-event definition:
+`204 No Content` on success.
 
-```json
-{ "error": ["Cannot delete record because dependent alerts exist"] }
-```
+## Alerts — no API yet
 
-## Alerts API
-
-An `Alert` binds an `EventDefinition` to a role that should be notified,
-with no integration/delivery channel yet (added in a later stage).
-
-### `GET /api/v1/alerts`
-
-```bash
-curl -s http://localhost:3001/api/v1/alerts
-```
-
-```json
-[
-  {
-    "id": 1,
-    "name": "Critical Truck Accident",
-    "role": "Logistics Manager",
-    "description": "Notify logistics users when a truck failure results in damaged goods.",
-    "event": {
-      "id": 1,
-      "name": "Truck Accident",
-      "group": "Fleet / Transport",
-      "type": "Accident"
-    },
-    "created_at": "2026-09-18T14:05:00.000Z",
-    "updated_at": "2026-09-18T14:05:00.000Z"
-  }
-]
-```
-
-### `GET /api/v1/alerts/:id`
-
-```bash
-curl -s http://localhost:3001/api/v1/alerts/1
-```
-
-Response: same shape as one list item. `404` if not found.
-
-### `POST /api/v1/alerts`
-
-`event_id` must reference an existing `EventDefinition` (created via the
-Events API above). `role` is currently a free-text string — see
-[Deferred: Superset role lookup](ARCHITECTURE.md#deferred-read-only-superset-identity-lookup)
-for how it will later be validated against live Superset roles.
-
-```bash
-curl -s -X POST http://localhost:3001/api/v1/alerts \
-  -H "Content-Type: application/json" \
-  -d '{
-        "alert": {
-          "name": "Critical Truck Accident",
-          "event_id": 1,
-          "role": "Logistics Manager",
-          "description": "Notify logistics users when a truck failure results in damaged goods."
-        }
-      }'
-```
-
-`201 Created` with the created record (nested `event` object as shown
-above). Validation errors return `422`:
-
-```json
-// missing/invalid event_id
-{ "error": ["Event definition must exist"] }
-
-// missing required field
-{ "error": ["Role can't be blank", "Description can't be blank"] }
-```
-
-### `PATCH /api/v1/alerts/:id`
-
-Same body shape as create; any subset of `name`/`event_id`/`role`/`description`.
-
-```bash
-curl -s -X PATCH http://localhost:3001/api/v1/alerts/1 \
-  -H "Content-Type: application/json" \
-  -d '{ "alert": { "role": "Fleet Supervisor" } }'
-```
-
-### `DELETE /api/v1/alerts/:id`
-
-```bash
-curl -s -X DELETE http://localhost:3001/api/v1/alerts/1
-```
-
-`204 No Content` on success. Deleting an alert never blocks — only
-deleting an `EventDefinition` still referenced by an alert does.
+The `Alert`/`AlertRule` system was reworked (alert-system refactor Phase
+1): alerts are no longer tied to `EventDefinition` at all. `AlertRule` and
+`Alert` now live in the `operations` database and target five alertable
+business models (`Vehicle`, `Hub`, `Package`, `PaymentDue`,
+`WorkforceMember`) directly by field/operator/value — see
+`ARCHITECTURE.md`. Phase 1 is data-layer only (migrations, models,
+validations); there is intentionally no `/api/v1/alerts` or
+`/api/v1/alert_rules` route yet. The old `EventDefinition`-based `Alert`
+API documented in earlier revisions of this file has been removed along
+with its implementation.
 
 ## Postman
 
 1. Create an environment with `base_url = http://localhost:3001`. No
    Authorization setup is needed — authentication is currently disabled
    (see top of this document).
-2. Example request chain to exercise the full Event → Alert flow:
-   - `POST {{base_url}}/api/v1/events` — body as shown above; save the
-     response `id` to a collection variable `event_id`
-     (Tests tab: `pm.collectionVariables.set("event_id", pm.response.json().id);`).
-   - `POST {{base_url}}/api/v1/alerts` — body `{ "alert": { "name": "...",
-     "event_id": {{event_id}}, "role": "...", "description": "..." } }`.
-   - `GET {{base_url}}/api/v1/alerts` — confirm the created alert is listed.
-   - `DELETE {{base_url}}/api/v1/events/{{event_id}}` — confirm this
-     returns `422` while the alert still exists, then delete the alert
-     first and retry.
+2. Example: `POST {{base_url}}/api/v1/events` — body as shown above.
 
 ## Not yet implemented (Stage 4+)
 
 - `POST /api/v1/events/occurrences` (generic event ingestion, distinct from
   the `EventDefinition` CRUD above)
+- `/api/v1/alert_rules`, `/api/v1/alerts` (AlertRule/Alert exist in the
+  operations DB as of Phase 1, but have no API yet — no triggering logic
+  exists either)
 - `GET /api/v1/events/stream` (SSE)
 - `/api/v1/integrations` (Slack/SMS/WhatsApp/Email) and the `integration`
   field on `Alert`

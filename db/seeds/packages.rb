@@ -27,6 +27,8 @@ status_weights = { "pending" => 3, "in_transit" => 3, "received" => 6, "damaged"
     received_quantity: received,
     damaged_quantity: damaged,
     short_quantity: short,
-    status: status
+    status: status,
+    allow_alerts: true,
+    alertable_fields: %w[status damaged_quantity short_quantity]
   )
 end
