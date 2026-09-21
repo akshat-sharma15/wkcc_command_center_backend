@@ -27,7 +27,7 @@ gem "bootsnap", require: false
 
 # Redis client (Rails cache, Sidekiq, and the Stage 3+ event pub/sub channel
 # all share the same isolated Redis instance via different logical DB indices)
-gem "redis", "~> 5.3"
+gem "redis", "~> 6.0"
 
 # Background jobs (event ingestion, simulator, notifications in later stages).
 # Pinned: Sidekiq 7.3.x's scheduler thread breaks silently against
