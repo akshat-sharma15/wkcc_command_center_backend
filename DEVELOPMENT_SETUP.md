@@ -92,11 +92,11 @@ Edit `.env`: fill in `PGPASSWORD` (from step 2), confirm `PGHOST`/`PGPORT`
 and `REDIS_HOST`/`REDIS_PORT` match your local setup, and set a
 `SIDEKIQ_WEB_PASSWORD` for the `/sidekiq` dashboard.
 
-Load it before any `rails`/`bundle`/`sidekiq` command:
-
-```bash
-source scripts/dev_env.sh
-```
+That's it — `.env` is loaded automatically (via the `dotenv-rails` gem) by
+every `rails`/`sidekiq`/`rspec` command from here on. You do **not** need
+to `source scripts/dev_env.sh` for day-to-day work; that script is only
+needed in step 5 below (or for raw `psql`/`redis-cli` commands), and only
+if `pg_config` isn't already on your `PATH`.
 
 ## 5. Backend installation
 
@@ -105,10 +105,9 @@ bundle install
 ```
 
 `pg` needs `pg_config` on `PATH` to build its native extension — if you're
-using a non-Homebrew Postgres (e.g. Postgres.app), add its `bin/` directory
-to `PATH` before running `bundle install` (already handled by
-`scripts/dev_env.sh` if you're pointing at the sibling Superset project's
-Postgres.app install).
+using a non-Homebrew Postgres (e.g. Postgres.app) and `bundle install`
+fails looking for it, run `source scripts/dev_env.sh` first (it adds
+Postgres.app's `bin/` directory to `PATH`), then retry.
 
 ## 6. Database initialization
 
@@ -141,12 +140,33 @@ from `.env`): `http://localhost:3001/sidekiq`.
 bundle exec rspec
 ```
 
+Covers all three databases, including the Stage 3 `EventDefinition`/`Alert`
+model and request specs (`spec/models/event_definition_spec.rb`,
+`spec/models/alert_spec.rb`, `spec/requests/api/v1/events_spec.rb`,
+`spec/requests/api/v1/alerts_spec.rb`).
+
+## 8b. Smoke-testing the Events/Alerts API
+
+Authentication is currently disabled (see `ARCHITECTURE.md`), so no token
+is needed:
+
+```bash
+curl -s -X POST http://localhost:3001/api/v1/events \
+  -H "Content-Type: application/json" \
+  -d '{"event":{"name":"Truck Accident","group":"Fleet / Transport","type":"Accident"}}'
+
+curl -s http://localhost:3001/api/v1/events
+```
+
+See `API.md` for the full Events/Alerts reference, every field, error
+shape, and a Postman collection walkthrough.
+
 ## 9. Troubleshooting
 
 - **`pg_config` not found / `pg` gem fails to build**: see step 5.
 - **`PG::ConnectionBad`**: confirm `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`
-  in `.env` match a running Postgres and that you ran `source
-  scripts/dev_env.sh`.
+  in `.env` match a running Postgres, and that Postgres is actually up
+  (`pg_isready -h <PGHOST> -p <PGPORT>`).
 - **Sidekiq jobs enqueue but scheduled jobs never fire**: check the
   `connection_pool` gem version pin in `Gemfile` — see `ARCHITECTURE.md`.
 - **Port 3001 already in use**: another local project may be on it;

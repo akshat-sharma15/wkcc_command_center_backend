@@ -3,18 +3,6 @@ require "rails_helper"
 RSpec.describe "Api::V1::Vehicles", type: :request do
   let(:hub) { create(:hub) }
 
-  describe "authentication" do
-    def request_without_auth
-      get "/api/v1/vehicles"
-    end
-
-    def request_with_invalid_auth
-      get "/api/v1/vehicles", headers: { "Authorization" => "Bearer not-a-real-token" }
-    end
-
-    include_examples "requires api authentication"
-  end
-
   describe "GET /api/v1/vehicles" do
     it "returns paginated vehicles" do
       create_list(:vehicle, 3, hub: hub)

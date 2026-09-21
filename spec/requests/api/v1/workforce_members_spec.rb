@@ -3,18 +3,6 @@ require "rails_helper"
 RSpec.describe "Api::V1::WorkforceMembers", type: :request do
   let(:hub) { create(:hub) }
 
-  describe "authentication" do
-    def request_without_auth
-      get "/api/v1/workforce_members"
-    end
-
-    def request_with_invalid_auth
-      get "/api/v1/workforce_members", headers: { "Authorization" => "Bearer not-a-real-token" }
-    end
-
-    include_examples "requires api authentication"
-  end
-
   it "supports the full CRUD lifecycle" do
     create_list(:workforce_member, 2, hub: hub)
     get "/api/v1/workforce_members", headers: authenticated_headers

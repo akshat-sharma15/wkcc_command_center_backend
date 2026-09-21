@@ -5,18 +5,6 @@ RSpec.describe "Api::V1::Trips", type: :request do
   let(:origin) { create(:hub) }
   let(:destination) { create(:hub) }
 
-  describe "authentication" do
-    def request_without_auth
-      get "/api/v1/trips"
-    end
-
-    def request_with_invalid_auth
-      get "/api/v1/trips", headers: { "Authorization" => "Bearer not-a-real-token" }
-    end
-
-    include_examples "requires api authentication"
-  end
-
   it "supports the full CRUD lifecycle" do
     create_list(:trip, 2)
     get "/api/v1/trips", headers: authenticated_headers

@@ -3,18 +3,6 @@ require "rails_helper"
 RSpec.describe "Api::V1::Packages", type: :request do
   let(:warehouse) { create(:warehouse) }
 
-  describe "authentication" do
-    def request_without_auth
-      get "/api/v1/packages"
-    end
-
-    def request_with_invalid_auth
-      get "/api/v1/packages", headers: { "Authorization" => "Bearer not-a-real-token" }
-    end
-
-    include_examples "requires api authentication"
-  end
-
   it "supports the full CRUD lifecycle" do
     create_list(:package, 2)
     get "/api/v1/packages", headers: authenticated_headers

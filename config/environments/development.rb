@@ -24,7 +24,14 @@ Rails.application.configure do
   end
 
   # Change to :null_store to avoid any caching.
-  config.cache_store = :redis_cache_store, { url: ENV["REDIS_CACHE_URL"] }
+  # REDIS_CACHE_URL isn't a literal .env key (it's derived), so it falls
+  # back to REDIS_HOST/PORT/REDIS_CACHE_DB here rather than defaulting to
+  # Redis' own :6379, which on this machine belongs to an unrelated
+  # project (see sidekiq.rb's initializer for the same pattern).
+  redis_cache_url = ENV.fetch("REDIS_CACHE_URL") {
+    "redis://#{ENV.fetch('REDIS_HOST', 'localhost')}:#{ENV.fetch('REDIS_PORT', 6380)}/#{ENV.fetch('REDIS_CACHE_DB', 5)}"
+  }
+  config.cache_store = :redis_cache_store, { url: redis_cache_url }
 
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # One-time (or reset) database initialization for local dev.
-# Usage: source scripts/dev_env.sh && ./scripts/init_db.sh
+# Usage: ./scripts/init_db.sh
+# .env is loaded automatically by dotenv-rails, so no prior `source` step
+# is needed.
 set -euo pipefail
-
-: "${PGHOST:?Run 'source scripts/dev_env.sh' first}"
-: "${PRIMARY_DB_NAME:?Run 'source scripts/dev_env.sh' first}"
 
 echo "==> Creating databases (primary, operations, command_center) if needed"
 bundle exec rails db:create

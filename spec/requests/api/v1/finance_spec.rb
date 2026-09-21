@@ -1,18 +1,6 @@
 require "rails_helper"
 
 RSpec.describe "Api::V1::Finance", type: :request do
-  describe "authentication" do
-    def request_without_auth
-      get "/api/v1/finance"
-    end
-
-    def request_with_invalid_auth
-      get "/api/v1/finance", headers: { "Authorization" => "Bearer not-a-real-token" }
-    end
-
-    include_examples "requires api authentication"
-  end
-
   it "supports the full CRUD lifecycle" do
     create_list(:payment_due, 2)
     get "/api/v1/finance", headers: authenticated_headers

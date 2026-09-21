@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Starts the Rails API server (Puma, with code reloading).
+# Starts the Rails API server (Puma, with code reloading). .env is loaded
+# automatically by dotenv-rails, so no prior `source` step is needed.
 set -euo pipefail
 
-: "${PGHOST:?Run 'source scripts/dev_env.sh' first}"
-
-bundle exec rails server -p "${PORT:-3001}"
+bundle exec rails server

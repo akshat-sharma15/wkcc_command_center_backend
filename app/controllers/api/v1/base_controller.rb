@@ -4,10 +4,14 @@ module Api
       include ApiAuthenticatable
       include Pagy::Backend
 
-      before_action :authenticate_api_client!
+      # Bearer-token enforcement is disabled for now (requested explicitly);
+      # the ApiClient/ApiAuthenticatable mechanism is left in place so it can
+      # be re-enabled by restoring this line.
+      # before_action :authenticate_api_client!
 
       rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
       rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable_content
+      rescue_from ActiveRecord::RecordNotDestroyed, with: :render_unprocessable_content
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
       rescue_from StandardError, with: :render_internal_error unless Rails.env.local?
 

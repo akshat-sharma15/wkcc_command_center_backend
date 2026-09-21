@@ -43,6 +43,13 @@ gem "pagy", "~> 9.0"
 gem "rack-cors"
 
 group :development, :test do
+  # Auto-loads .env into ENV on boot (rails server/console/sidekiq/rspec),
+  # so `source scripts/dev_env.sh` is no longer required for day-to-day
+  # commands — only for bundle install's pg_config PATH and raw psql/
+  # redis-cli. Intentionally excluded from :production — env vars there
+  # come from the real deployment environment, never a checked-in file.
+  gem "dotenv-rails", "~> 3.1"
+
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 

@@ -40,7 +40,12 @@ Rails.application.configure do
   # Don't log any deprecations.
   config.active_support.report_deprecations = false
 
-  config.cache_store = :redis_cache_store, { url: ENV["REDIS_CACHE_URL"] }
+  # REDIS_CACHE_URL isn't a literal .env key (it's derived); see the same
+  # fallback pattern in development.rb and sidekiq.rb's initializer.
+  redis_cache_url = ENV.fetch("REDIS_CACHE_URL") {
+    "redis://#{ENV.fetch('REDIS_HOST', 'localhost')}:#{ENV.fetch('REDIS_PORT', 6380)}/#{ENV.fetch('REDIS_CACHE_DB', 5)}"
+  }
+  config.cache_store = :redis_cache_store, { url: redis_cache_url }
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation cannot be found).

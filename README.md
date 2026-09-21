@@ -25,13 +25,16 @@ roadmap and what's deliberately deferred.
 
 ```bash
 cp .env.example .env   # then edit .env with your local DB/Redis credentials
-source scripts/dev_env.sh
+bundle install                      # source scripts/dev_env.sh first only if pg_config isn't on PATH
 
 ./scripts/init_db.sh                # db:create db:migrate db:seed, all 3 databases
 
 ./scripts/run_server.sh             # terminal 1: API on :3001
 ./scripts/run_sidekiq.sh            # terminal 2: Sidekiq worker
 ```
+
+`.env` loads automatically (via `dotenv-rails`) for every `rails`/
+`sidekiq`/`rspec` command — no manual `source` step needed day to day.
 
 Full setup instructions, including PostgreSQL/Redis provisioning, are in
 [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md). API endpoints are documented
@@ -46,8 +49,11 @@ bundle exec rspec
 
 ## Issuing an API token
 
-There is no admin UI yet (Stage 1/2 scope). Issue a token from the Rails
-console:
+**Authentication is currently disabled** on every `/api/v1/*` endpoint —
+no token is required to call the API right now (see `ARCHITECTURE.md`).
+This section is for when it's re-enabled.
+
+There is no admin UI yet. Issue a token from the Rails console:
 
 ```ruby
 client, raw_token = ApiClient.create_with_token!(name: "some-service", scopes: [])

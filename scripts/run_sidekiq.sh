@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Starts a Sidekiq worker process.
+# Starts a Sidekiq worker process. .env is loaded automatically by
+# dotenv-rails, so no prior `source` step is needed.
 set -euo pipefail
-
-: "${REDIS_SIDEKIQ_URL:?Run 'source scripts/dev_env.sh' first}"
 
 bundle exec sidekiq -C config/sidekiq.yml

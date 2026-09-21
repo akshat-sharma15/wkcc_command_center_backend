@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Source this file to load local dev environment variables into your shell:
+# rails/sidekiq/rspec commands load .env on their own now (dotenv-rails) -
+# you do NOT need to source this file for those. Source it only when you
+# need the vars in your shell directly: `bundle install` (pg_config on
+# PATH to build the pg gem) or raw `psql`/`redis-cli` commands.
 #   source scripts/dev_env.sh
 set -a
 # shellcheck disable=SC1091

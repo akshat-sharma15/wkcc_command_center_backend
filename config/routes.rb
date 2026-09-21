@@ -15,6 +15,8 @@ Rails.application.routes.draw do
       resources :packages
       resources :finance, controller: "finance"
       resources :workforce_members
+      resources :events
+      resources :alerts
     end
   end
 
