@@ -296,12 +296,12 @@ GEM
       rubocop-rails (>= 2.30)
     ruby-progressbar (1.13.0)
     securerandom (0.4.1)
-    sidekiq (7.3.10)
-      base64
-      connection_pool (>= 2.3.0, < 3)
-      logger
-      rack (>= 2.2.4, < 3.3)
-      redis-client (>= 0.23.0, < 1)
+    sidekiq (8.0.10)
+      connection_pool (>= 2.5.0)
+      json (>= 2.9.0)
+      logger (>= 1.6.2)
+      rack (>= 3.1.0)
+      redis-client (>= 0.23.2)
     thor (1.5.0)
     timeout (0.6.1)
     tsort (0.2.0)
@@ -352,7 +352,7 @@ DEPENDENCIES
   redis (~> 5.3)
   rspec-rails (~> 7.1)
   rubocop-rails-omakase
-  sidekiq (~> 7.3)
+  sidekiq (~> 8.0)
   tzinfo-data
   webmock (~> 3.24)
 
