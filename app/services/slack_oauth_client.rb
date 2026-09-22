@@ -14,6 +14,7 @@ class SlackOauthClient
   AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
   TOKEN_URL = "https://slack.com/api/oauth.v2.access"
   REVOKE_URL = "https://slack.com/api/auth.revoke"
+  POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
 
   # Bot scope needed for the eventual purpose of this integration (posting
   # alerts to Slack, built in a later phase) — requested now so
@@ -65,5 +66,23 @@ class SlackOauthClient
     JSON.parse(response.body)["ok"] == true
   rescue StandardError
     false
+  end
+
+  # Posts a message to a channel using the connected workspace's bot
+  # token. Returns Slack's parsed response hash (never raises on a
+  # Slack-reported failure — "ok": false is a normal outcome the caller
+  # handles, e.g. the bot not being in the target channel). Only a
+  # transport-level failure raises, same convention as #exchange_code.
+  def self.post_message(bot_token:, channel:, text:)
+    uri = URI(POST_MESSAGE_URL)
+    request = Net::HTTP::Post.new(uri)
+    request["Authorization"] = "Bearer #{bot_token}"
+    request["Content-Type"] = "application/json"
+    request.body = { channel: channel, text: text }.to_json
+
+    response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
+    JSON.parse(response.body)
+  rescue JSON::ParserError, Timeout::Error, SocketError, Errno::ECONNREFUSED => e
+    raise SlackApiError, "Slack chat.postMessage failed: #{e.class}"
   end
 end

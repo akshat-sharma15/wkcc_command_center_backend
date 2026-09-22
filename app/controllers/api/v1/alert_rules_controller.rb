@@ -36,12 +36,18 @@ module Api
       end
 
       # Every field here still goes through AlertRule's own validations
-      # (group/field/operator/severity/recipient/channels) — this is just
-      # the strong-params boundary, never the trust boundary.
+      # (trigger_type mutual exclusivity, group/field/operator/severity/
+      # recipient/channels) — this is just the strong-params boundary,
+      # never the trust boundary. Switching trigger_type requires the
+      # caller to explicitly null out the other mode's fields (matching
+      # the documented request shape) — a PATCH that omits a field leaves
+      # its prior value untouched, which the model validations then
+      # correctly reject if it's now the wrong mode's leftover data.
       def alert_rule_params
         params.require(:alert_rule).permit(
-          :name, :group, :field, :operator, :value, :severity, :notify,
-          :recipient_type, :recipient_id, :enabled, :event_definition_id,
+          :name, :trigger_type, :event_definition_id,
+          :group, :field, :operator, :value, :severity, :notify,
+          :recipient_type, :recipient_id, :enabled,
           notification_channels: []
         )
       end

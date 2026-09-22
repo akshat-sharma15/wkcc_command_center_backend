@@ -28,15 +28,22 @@ Rails.application.routes.draw do
       get "alert-recipients/users" => "alert_recipients#users"
 
       resources :alert_rules, path: "alert-rules"
-      # No triggering/evaluation, notification delivery, or SSE yet —
-      # Phase 3+.
 
-      # Slack OAuth connect/status/disconnect only — no message delivery
-      # yet (see app/controllers/api/v1/slack_integrations_controller.rb).
+      # Slack OAuth connect/status/disconnect (see
+      # app/controllers/api/v1/slack_integrations_controller.rb).
       get "integrations/slack" => "slack_integrations#show"
       get "integrations/slack/connect" => "slack_integrations#connect"
       get "integrations/slack/callback" => "slack_integrations#callback"
       delete "integrations/slack/:id" => "slack_integrations#destroy"
+
+      # Alert runtime pipeline: Alert/Notification creation happen in
+      # AlertEvaluationJob (triggered by the Alertable concern), not here.
+      get "notifications" => "notifications#index"
+      get "notifications/unread" => "notifications#unread"
+      get "notifications/sse-ticket" => "notifications#sse_ticket"
+      get "notifications/stream" => "notifications_stream#stream"
+      patch "notifications/:id/read" => "notifications#read"
+      get "notifications/:id" => "notifications#show"
     end
   end
 

@@ -169,40 +169,87 @@ RSpec.describe AlertRule, type: :model do
     end
   end
 
-  describe "event_definition association" do
-    it "is optional — a field-only rule with no event_definition_id is valid" do
-      create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
-      rule = build(:alert_rule, group: "vehicles", field: "status", event_definition_id: nil,
-        ensure_target_alertable: false)
-      expect(rule).to be_valid
+  describe "trigger_type mutual exclusivity" do
+    def condition_attrs
+      { trigger_type: "condition", group: "vehicles", field: "status", operator: "=", value: "x",
+        event_definition_id: nil, ensure_target_alertable: false }
     end
 
-    it "accepts a real event_definition_id and exposes the association" do
-      create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
-      event = create(:event_definition)
-      rule = build(:alert_rule, group: "vehicles", field: "status", event_definition_id: event.id,
-        ensure_target_alertable: false)
-      expect(rule).to be_valid
-      expect(rule.event_definition).to eq(event)
+    def event_attrs(event_definition_id:)
+      { trigger_type: "event", event_definition_id: event_definition_id,
+        group: nil, field: nil, operator: nil, value: nil, ensure_target_alertable: false }
     end
 
-    it "rejects an event_definition_id that does not exist" do
-      create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
-      rule = build(:alert_rule, group: "vehicles", field: "status", event_definition_id: 999_999,
-        ensure_target_alertable: false)
+    it "rejects an unrecognized trigger_type" do
+      rule = build(:alert_rule, trigger_type: "something_else")
       expect(rule).not_to be_valid
-      expect(rule.errors[:event_definition_id]).to be_present
+      expect(rule.errors[:trigger_type]).to be_present
     end
 
-    it "nullifies event_definition_id on rules when the EventDefinition is destroyed" do
-      create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
-      event = create(:event_definition)
-      rule = create(:alert_rule, group: "vehicles", field: "status", event_definition_id: event.id,
-        ensure_target_alertable: false)
+    describe "condition mode" do
+      it "is valid with group/field/operator/value and no event_definition_id" do
+        create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
+        expect(build(:alert_rule, **condition_attrs)).to be_valid
+      end
 
-      event.destroy!
+      it "rejects a condition rule that also sets event_definition_id" do
+        create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
+        event = create(:event_definition)
+        rule = build(:alert_rule, **condition_attrs.merge(event_definition_id: event.id))
+        expect(rule).not_to be_valid
+        expect(rule.errors[:event_definition_id]).to be_present
+      end
 
-      expect(rule.reload.event_definition_id).to be_nil
+      %i[group field operator value].each do |attr|
+        it "requires #{attr}" do
+          rule = build(:alert_rule, **condition_attrs.merge(attr => nil))
+          expect(rule).not_to be_valid
+          expect(rule.errors[attr]).to be_present
+        end
+      end
+    end
+
+    describe "event mode" do
+      it "is valid with event_definition_id and no group/field/operator/value" do
+        event = create(:event_definition)
+        expect(build(:alert_rule, **event_attrs(event_definition_id: event.id))).to be_valid
+      end
+
+      it "requires event_definition_id" do
+        rule = build(:alert_rule, **event_attrs(event_definition_id: nil))
+        expect(rule).not_to be_valid
+        expect(rule.errors[:event_definition_id]).to be_present
+      end
+
+      it "rejects an event_definition_id that does not exist" do
+        rule = build(:alert_rule, **event_attrs(event_definition_id: 999_999))
+        expect(rule).not_to be_valid
+        expect(rule.errors[:event_definition_id]).to be_present
+      end
+
+      %i[group field operator value].each do |attr|
+        it "rejects a populated #{attr}" do
+          event = create(:event_definition)
+          rule = build(:alert_rule, **event_attrs(event_definition_id: event.id).merge(attr => "x"))
+          expect(rule).not_to be_valid
+          expect(rule.errors[attr]).to be_present
+        end
+      end
+
+      it "exposes the event_definition association" do
+        event = create(:event_definition)
+        rule = build(:alert_rule, **event_attrs(event_definition_id: event.id))
+        expect(rule.event_definition).to eq(event)
+      end
+
+      it "nullifies event_definition_id on rules when the EventDefinition is destroyed" do
+        event = create(:event_definition)
+        rule = create(:alert_rule, **event_attrs(event_definition_id: event.id))
+
+        event.destroy!
+
+        expect(rule.reload.event_definition_id).to be_nil
+      end
     end
   end
 end

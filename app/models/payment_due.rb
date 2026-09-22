@@ -1,5 +1,7 @@
 # Backs the "finance" domain (routed at /api/v1/finance).
 class PaymentDue < OperationsRecord
+  include Alertable
+
   enum :payment_status, { pending: "pending", paid: "paid", overdue: "overdue" }, prefix: true
 
   validates :vendor, presence: true

@@ -8,10 +8,12 @@
 /.bundle
 /vendor/bundle
 
-# Ignore all environment files, except the example template (which is
-# meant to be committed - see DEVELOPMENT_SETUP.md).
+# Ignore all environment files, except the example template and the
+# test-environment overrides (neither holds secrets - see
+# DEVELOPMENT_SETUP.md and .env.test's own header comment).
 /.env*
 !/.env.example
+!/.env.test
 
 # Ignore all logfiles and tempfiles.
 /log/*

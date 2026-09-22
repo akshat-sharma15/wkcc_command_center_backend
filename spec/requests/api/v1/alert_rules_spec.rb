@@ -20,7 +20,7 @@ RSpec.describe "Api::V1::AlertRules", type: :request do
         notify: true,
         recipient_type: "role",
         recipient_id: 5,
-        notification_channels: %w[in_app email slack],
+        notification_channels: %w[in_app slack],
         enabled: true
       }
     }
@@ -28,7 +28,7 @@ RSpec.describe "Api::V1::AlertRules", type: :request do
     body = response.parsed_body
     expect(body["group_label"]).to eq("Vehicles")
     expect(body["field_label"]).to eq("Status")
-    expect(body["notification_channels"]).to eq(%w[in_app email slack])
+    expect(body["notification_channels"]).to eq(%w[in_app slack])
     alert_rule_id = body["id"]
 
     get "/api/v1/alert-rules"
@@ -149,26 +149,48 @@ RSpec.describe "Api::V1::AlertRules", type: :request do
     expect(response).to have_http_status(:unprocessable_content)
   end
 
-  it "accepts an optional event_definition_id and includes it in the response" do
-    create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
+  it "creates an event-mode rule and includes event_definition_id/name in the response" do
     event = create(:event_definition, name: "Vehicle Failure")
     post "/api/v1/alert-rules", params: {
       alert_rule: {
-        name: "Event Linked Rule", group: "vehicles", field: "status", operator: "=", value: "x",
-        severity: "info", event_definition_id: event.id
+        name: "Event Linked Rule", trigger_type: "event", event_definition_id: event.id,
+        group: nil, field: nil, operator: nil, value: nil, severity: "info"
       }
     }
     expect(response).to have_http_status(:created)
+    expect(response.parsed_body["trigger_type"]).to eq("event")
     expect(response.parsed_body["event_definition_id"]).to eq(event.id)
     expect(response.parsed_body["event_definition_name"]).to eq("Vehicle Failure")
   end
 
   it "rejects an event_definition_id that does not exist" do
-    create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
     post "/api/v1/alert-rules", params: {
       alert_rule: {
-        name: "Bad Event", group: "vehicles", field: "status", operator: "=", value: "x",
-        severity: "info", event_definition_id: 999_999
+        name: "Bad Event", trigger_type: "event", event_definition_id: 999_999,
+        group: nil, field: nil, operator: nil, value: nil, severity: "info"
+      }
+    }
+    expect(response).to have_http_status(:unprocessable_content)
+  end
+
+  it "rejects an event-mode rule that also populates condition fields" do
+    event = create(:event_definition)
+    post "/api/v1/alert-rules", params: {
+      alert_rule: {
+        name: "Bad Mix", trigger_type: "event", event_definition_id: event.id,
+        group: "vehicles", field: "status", operator: "=", value: "x", severity: "info"
+      }
+    }
+    expect(response).to have_http_status(:unprocessable_content)
+  end
+
+  it "rejects a condition-mode rule that also populates event_definition_id" do
+    create(:vehicle, allow_alerts: true, alertable_fields: %w[status])
+    event = create(:event_definition)
+    post "/api/v1/alert-rules", params: {
+      alert_rule: {
+        name: "Bad Mix", trigger_type: "condition", event_definition_id: event.id,
+        group: "vehicles", field: "status", operator: "=", value: "x", severity: "info"
       }
     }
     expect(response).to have_http_status(:unprocessable_content)
