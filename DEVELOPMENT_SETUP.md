@@ -98,6 +98,42 @@ to `source scripts/dev_env.sh` for day-to-day work; that script is only
 needed in step 5 below (or for raw `psql`/`redis-cli` commands), and only
 if `pg_config` isn't already on your `PATH`.
 
+## 4b. Rails encryption credentials (required before connecting Slack)
+
+`Integration#bot_token` is stored via Rails' built-in `ActiveRecord::Encryption`
+(`encrypts :bot_token`), which needs its own keys in Rails credentials —
+separate from anything in `.env`. This is **per-environment**: each server
+(your laptop, staging, prod) has its own `config/master.key` +
+`config/credentials.yml.enc` pair, unless you deliberately share one via a
+`RAILS_MASTER_KEY` env var through your deploy/secrets pipeline. Skipping
+this step is fine until the first time someone tries to connect Slack, at
+which point it fails with `ActiveRecord::Encryption::Errors::Configuration:
+Missing Active Record encryption credential`.
+
+One-time setup for this environment:
+
+```bash
+bin/rails db:encryption:init
+```
+
+This prints a `primary_key` / `deterministic_key` / `key_derivation_salt`.
+Paste that block into:
+
+```bash
+EDITOR="vim" bin/rails credentials:edit
+```
+
+(If `config/master.key` doesn't exist yet, this command generates one
+automatically the first time you run it.) Save and quit — it should say
+"File encrypted and saved."
+
+**Back up `config/master.key` somewhere safe** (a password manager or
+secrets vault) as soon as it's created. It's gitignored on purpose and
+never committed; if it's lost with no backup, `credentials.yml.enc` becomes
+permanently undecryptable and has to be regenerated from scratch (see
+`docs/slack_integration_setup.md` troubleshooting for what that recovery
+looks like).
+
 ## 5. Backend installation
 
 ```bash
@@ -171,6 +207,10 @@ shape, and a Postman collection walkthrough.
   `connection_pool` gem version pin in `Gemfile` — see `ARCHITECTURE.md`.
 - **Port 3001 already in use**: another local project may be on it;
   override `PORT` in `.env`.
+- **`ActiveRecord::Encryption::Errors::Configuration: Missing Active
+  Record encryption credential`** when connecting Slack: see step 4b —
+  this environment's Rails credentials don't have the
+  `active_record_encryption` block yet.
 
 ## 10. Resetting local development
 

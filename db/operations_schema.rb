@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -19,20 +19,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
     t.bigint "created_by_user_id"
     t.boolean "enabled", default: true, null: false
     t.bigint "event_definition_id"
-    t.string "field", null: false
-    t.string "group", null: false
+    t.string "field"
+    t.string "group"
     t.string "name", null: false
     t.string "notification_channels", default: [], null: false, array: true
     t.boolean "notify", default: false, null: false
-    t.string "operator", null: false
+    t.string "operator"
     t.bigint "recipient_id"
     t.string "recipient_type"
     t.string "severity", null: false
+    t.string "trigger_type", default: "condition", null: false
     t.datetime "updated_at", null: false
     t.jsonb "value"
     t.index ["enabled"], name: "index_alert_rules_on_enabled"
     t.index ["event_definition_id"], name: "index_alert_rules_on_event_definition_id"
     t.index ["group"], name: "index_alert_rules_on_group"
+    t.index ["trigger_type"], name: "index_alert_rules_on_trigger_type"
   end
 
   create_table "alerts", force: :cascade do |t|
@@ -49,6 +51,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
     t.string "status", default: "open", null: false
     t.datetime "triggered_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["alert_rule_id", "group", "record_id"], name: "index_alerts_on_open_rule_group_record", unique: true, where: "((status)::text = 'open'::text)"
     t.index ["alert_rule_id"], name: "index_alerts_on_alert_rule_id"
     t.index ["group", "record_id"], name: "index_alerts_on_group_and_record_id"
     t.index ["group"], name: "index_alerts_on_group"
@@ -79,6 +82,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
     t.datetime "updated_at", null: false
     t.index ["code"], name: "index_hubs_on_code", unique: true
     t.index ["operational_status"], name: "index_hubs_on_operational_status"
+  end
+
+  create_table "notifications", force: :cascade do |t|
+    t.bigint "alert_id", null: false
+    t.integer "attempts", default: 0, null: false
+    t.string "channel", null: false
+    t.datetime "created_at", null: false
+    t.datetime "delivered_at"
+    t.text "error_message"
+    t.string "external_reference"
+    t.datetime "failed_at"
+    t.text "message"
+    t.jsonb "metadata"
+    t.datetime "read_at"
+    t.bigint "recipient_user_id", null: false
+    t.string "status", default: "pending", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index ["alert_id"], name: "index_notifications_on_alert_id"
+    t.index ["channel"], name: "index_notifications_on_channel"
+    t.index ["recipient_user_id", "read_at"], name: "index_notifications_on_recipient_user_id_and_read_at"
+    t.index ["recipient_user_id"], name: "index_notifications_on_recipient_user_id"
+    t.index ["status"], name: "index_notifications_on_status"
   end
 
   create_table "packages", force: :cascade do |t|
@@ -182,6 +208,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_070001) do
 
   add_foreign_key "alert_rules", "event_definitions"
   add_foreign_key "alerts", "alert_rules"
+  add_foreign_key "notifications", "alerts"
   add_foreign_key "packages", "trips"
   add_foreign_key "trips", "hubs", column: "destination_hub_id"
   add_foreign_key "trips", "hubs", column: "origin_hub_id"

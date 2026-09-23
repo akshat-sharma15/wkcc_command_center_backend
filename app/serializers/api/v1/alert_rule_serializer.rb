@@ -9,6 +9,7 @@ module Api
         {
           id: @alert_rule.id,
           name: @alert_rule.name,
+          trigger_type: @alert_rule.trigger_type,
           group: @alert_rule.group,
           group_label: @alert_rule.group&.titleize,
           field: @alert_rule.field,

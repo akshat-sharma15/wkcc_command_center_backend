@@ -1,4 +1,6 @@
 class Package < OperationsRecord
+  include Alertable
+
   belongs_to :trip, optional: true
   belongs_to :location, polymorphic: true
 

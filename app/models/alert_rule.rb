@@ -1,7 +1,12 @@
-# A condition template ("vehicles.status = FAILURE at critical severity")
-# that Phase 3+ will evaluate against real records and turn into Alerts.
-# No triggering/evaluation logic exists yet — this is data-layer +
-# metadata-API only (Phase 2).
+# A rule has exactly one trigger mode (mutually exclusive):
+#   "event"     - fires via EventPublisher.publish when a real occurrence
+#                 of event_definition happens; group/field/operator/value
+#                 are NULL.
+#   "condition" - a field condition ("vehicles.status = FAILURE") evaluated
+#                 against real records by AlertEvaluationJob (see the
+#                 Alertable concern); event_definition_id is NULL.
+# Either way the rule eventually creates/resolves an Alert, which fans out
+# Notifications via AlertNotifier.
 class AlertRule < OperationsRecord
   # Server-side allowlist of alertable models. Deliberately not
   # AlertResource/AlertResourceField tables — this is an application-level
@@ -19,9 +24,17 @@ class AlertRule < OperationsRecord
     "workforce" => WorkforceMember
   }.freeze
 
+  TRIGGER_TYPES = %w[event condition].freeze
   SEVERITIES = %w[info warning critical].freeze
   RECIPIENT_TYPES = %w[role user].freeze
-  NOTIFICATION_CHANNELS = %w[in_app email slack].freeze
+  # Email is explicitly out of scope (this phase and the notification
+  # pipeline only implement in_app + Slack delivery) — never expose it as
+  # a selectable channel for new/updated rules. A rule written before this
+  # constant changed could in principle still have "email" stored in its
+  # notification_channels array; the notification-creation path (see
+  # AlertNotifier) simply never builds a Notification for a channel
+  # outside this list, so such a value is inert rather than erroring.
+  NOTIFICATION_CHANNELS = %w[in_app slack].freeze
 
   # Which comparison operators are meaningful for a given ActiveRecord
   # column type. The single source of truth for operator validity — both
@@ -39,21 +52,41 @@ class AlertRule < OperationsRecord
   belongs_to :event_definition, optional: true
 
   validates :name, presence: true
-  validates :group, presence: true, inclusion: { in: ALERTABLE_MODELS.keys, allow_blank: true }
-  validates :field, presence: true
-  validates :operator, presence: true
+  validates :trigger_type, presence: true, inclusion: { in: TRIGGER_TYPES, allow_blank: true }
   validates :severity, presence: true, inclusion: { in: SEVERITIES, allow_blank: true }
   validates :recipient_type, inclusion: { in: RECIPIENT_TYPES, allow_blank: true }
   validates :recipient_type, presence: true, if: :notify?
   validates :recipient_id, presence: true, if: :notify?
 
-  validate :field_must_exist_on_target_model
-  validate :field_must_be_alertable_on_target_model
-  validate :operator_must_be_valid_for_field_type
-  validate :value_must_match_field_type
+  # --- Trigger-mode mutual exclusivity -----------------------------------
+  validates :event_definition_id, presence: true, if: :event_trigger?
+  validates :event_definition_id, absence: true, if: :condition_trigger?
+  validates :group, presence: true, if: :condition_trigger?
+  validates :group, absence: true, if: :event_trigger?
+  validates :field, presence: true, if: :condition_trigger?
+  validates :field, absence: true, if: :event_trigger?
+  validates :operator, presence: true, if: :condition_trigger?
+  validates :operator, absence: true, if: :event_trigger?
+  validates :value, presence: true, if: :condition_trigger?
+  validates :value, absence: true, if: :event_trigger?
+
+  validates :group, inclusion: { in: ALERTABLE_MODELS.keys, allow_blank: true }
+
+  validate :field_must_exist_on_target_model, if: :condition_trigger?
+  validate :field_must_be_alertable_on_target_model, if: :condition_trigger?
+  validate :operator_must_be_valid_for_field_type, if: :condition_trigger?
+  validate :value_must_match_field_type, if: :condition_trigger?
   validate :notification_channels_must_be_supported
   validate :recipient_must_exist_in_superset
-  validate :event_definition_must_exist_if_given
+  validate :event_definition_must_exist_if_given, if: :event_trigger?
+
+  def event_trigger?
+    trigger_type == "event"
+  end
+
+  def condition_trigger?
+    trigger_type == "condition"
+  end
 
   # The actual model class for this rule's group, via the allowlist above —
   # never Object.const_get/constantize on the raw `group` string.

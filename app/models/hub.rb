@@ -1,4 +1,6 @@
 class Hub < OperationsRecord
+  include Alertable
+
   has_many :workforce_members, dependent: :restrict_with_error
   has_many :vehicles, dependent: :restrict_with_error
   has_many :outbound_trips, class_name: "Trip", foreign_key: :origin_hub_id, inverse_of: :origin_hub, dependent: :restrict_with_error

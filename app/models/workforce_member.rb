@@ -1,4 +1,6 @@
 class WorkforceMember < OperationsRecord
+  include Alertable
+
   belongs_to :hub
   has_many :vehicles, foreign_key: :driver_id, inverse_of: :driver, dependent: :nullify
 

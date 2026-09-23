@@ -147,12 +147,20 @@ directly, entirely within the `operations` database:
   `AlertResource`/`AlertResourceField` table — this is application code,
   not database data — and frontend input is never `constantize`d;
   `AlertRule#target_model` always resolves through this hash.
-- **`AlertRule`** — `name`, `group`, `field`, `operator`, `value` (jsonb),
-  `severity`, `notify`, `recipient_type`, `recipient_id`, `enabled`,
-  `created_by_user_id`. Validates `group` is an allowlisted key, `field`
-  is an actual column on that group's model, and `field` is listed in
-  `alertable_fields` on at least one `allow_alerts: true` record of that
-  model — i.e. `field_must_be_alertable_on_target_model` queries
+- **`AlertRule`** — `name`, `trigger_type` (`"event"` | `"condition"`,
+  mutually exclusive), `group`, `field`, `operator`, `value` (jsonb),
+  `event_definition_id`, `severity`, `notify`, `recipient_type`,
+  `recipient_id`, `enabled`, `created_by_user_id`. A rule has **exactly
+  one** trigger mode: `condition` mode requires `group`/`field`/`operator`/
+  `value` and forbids `event_definition_id`; `event` mode requires
+  `event_definition_id` (must reference a persisted `EventDefinition`) and
+  forbids `group`/`field`/`operator`/`value` — enforced by model
+  validations, not left to the frontend, with `group`/`field`/`operator`
+  relaxed to nullable at the DB level to match. Condition-mode validates
+  `group` is an allowlisted key, `field` is an actual column on that
+  group's model, and `field` is listed in `alertable_fields` on at least
+  one `allow_alerts: true` record of that model — i.e.
+  `field_must_be_alertable_on_target_model` queries
   `Model.where(allow_alerts: true).where("? = ANY (alertable_fields)",
   field)`. `recipient_type`/`recipient_id` are only required when
   `notify` is true; `recipient_id` is a plain bigint (e.g. a Superset role
@@ -188,26 +196,108 @@ resolution), the intended design is:
   never runs migrations against Superset's database.
 - This app **never** modifies Superset's tables, migrations, or metadata.
 
-## Event ingestion, simulator, alert engine, SSE, integrations (Stage 4–10)
+## Alert runtime pipeline: two trigger modes, one shared tail
 
-Not built. `EventDefinition` and `Alert` (Stage 3, above) only cover
-*definition* management. See the root task's full roadmap for the intended
-shape of what's next: generic event *occurrence* ingestion
-(`POST /api/v1/events/occurrences`, named to avoid colliding with the
-Stage 3 `EventDefinition` CRUD at `/api/v1/events`) validated against the
-`EventDefinition`s created here, publishing to Redis Pub/Sub, async
-alert-rule evaluation and notification delivery via Sidekiq, an
-`ActionController::Live`-based SSE endpoint (`GET /api/v1/events/stream`)
-that subscribes to Redis Pub/Sub per-connection — explicitly not
-WebSockets at this stage, but designed so WebSockets could supplement or
-replace SSE later without redesigning the event domain (the event
-occurrence, publisher, and subscriber layers are already separated by
-directory: `app/publishers/`, `app/subscribers/`, currently empty).
+Built. An `AlertRule` fires from exactly one of two independent pipelines,
+selected by `trigger_type`, converging on the same `AlertNotifier` for
+notification fan-out — neither pipeline duplicates that logic, and
+`EventPublisher` never calls Slack/SSE/Notification code directly.
 
-The event simulator (Stage 4) will be a self-rescheduling Sidekiq job that
-picks real existing records (never fabricated IDs) and pushes them through
-the exact same `Events::IngestEvent` pipeline a real external API call
-would use — no shortcut path.
+**Condition mode** — change-driven, off business-record changes:
+
+```
+record changes (Vehicle/Hub/Package/PaymentDue/WorkforceMember)
+  -> Alertable#after_commit (only if allow_alerts + an alertable_fields
+     field actually changed)
+  -> AlertEvaluationJob.perform_async(group, record_id, changed_fields)
+     (queries only trigger_type: "condition" rules - never touches
+     trigger_type: "event" rules)
+  -> AlertRuleEvaluator (=, !=, >, <, >=, <=, contains - type-aware,
+     reusing AlertRule.column_type_category)
+  -> Alert created/resolved (DB partial-unique-index-backed dedup: one
+     open Alert per alert_rule_id+group+record_id; true->true is a no-op,
+     true->false resolves the open Alert)
+  -> AlertNotifier.notify(alert, rule)
+```
+
+**Event mode** — a business service explicitly announces a real-world
+*occurrence* of a catalog `EventDefinition` (distinct from the catalog
+entry itself: `EventDefinition` is only "Vehicle Failure"; an occurrence is
+"vehicle 123 just failed"). Deliberately **no `EventOccurrence` table** —
+the occurrence is a plain in-memory call, never persisted on its own;
+`EventDefinition` remains the sole persisted catalog:
+
+```
+business service, e.g.:
+  EventPublisher.publish(event_definition: event_definition,
+    entity_type: "Vehicle", entity_id: vehicle.id,
+    payload: { vehicle_number: vehicle.vehicle_number })
+  -> validates event_definition is persisted; entity_type/entity_id present
+  -> AlertRule.where(enabled: true, trigger_type: "event",
+     event_definition_id: event_definition.id) - every matching rule fires
+  -> Alert created per matching rule (dedup: Alert#group is namespaced
+     "events:#{entity_type}", record_id is entity_id - reuses the exact
+     same partial-unique-index dedup as condition mode, scoped per
+     (rule, entity_type, entity_id), no schema change needed. Prevents
+     only an accidental re-publish of the SAME occurrence while its Alert
+     is still open; once resolved/acknowledged, or for a different
+     entity_id/entity_type, a new publish always creates a new, separate
+     Alert - legitimate distinct occurrences are never collapsed)
+  -> AlertNotifier.notify(alert, rule)
+```
+
+Both pipelines converge here:
+
+```
+AlertNotifier.notify(alert, rule)
+  -> AlertRecipientResolver (role/user -> Superset user ids, via
+     SupersetDirectory - never a cross-DB FK)
+  -> Notification row per (recipient, channel) + AlertNotificationMessageBuilder
+     (generic title/message for both modes - branches on
+     alert_rule.event_trigger? but has no per-model or per-event-type text;
+     event-mode messages/metadata read from Alert#metadata, populated by
+     EventPublisher with entity_type/entity_id/event_definition_name/payload)
+  -> NotificationDeliveryJob.perform_async(notification_id), per channel:
+       in_app: RealtimeNotificationPublisher -> Redis (REDIS_EVENTS_DB,
+               reserved for exactly this since Stage 1) -> SSE
+       slack:  existing SlackOauthClient#post_message, using the
+               already-connected Integration and SLACK_NOTIFICATION_CHANNEL
+               - see below
+```
+
+`AlertEvaluationJob`/`EventPublisher`/`NotificationDeliveryJob` never call
+Slack or touch Redis synchronously inside the Alert-creation transaction —
+a Slack outage can never block or roll back an Alert.
+
+### Notifications: durable store + SSE fan-out
+
+`Notification` (operations DB) is the durable source of truth — a row
+always exists before anything is published to Redis. Redis
+(`REDIS_EVENTS_DB`) is realtime fan-out only, never the store itself. SSE:
+`GET /api/v1/notifications/stream` (`ActionController::Live`, its own
+controller so the threading-model change stays isolated to one action),
+authenticated via a short-lived signed "ticket" (`SupersetUserIdentifiable`)
+since `EventSource` can't send custom headers — see that concern's comment
+for the honest limitation here: this app has no shared session with
+Superset to cryptographically verify "this really is that logged-in user,"
+so the ticket-issuing step trusts the frontend's `X-Superset-User-Id`
+claim (backed by Superset's own already-authenticated session/Redux
+state), the same class of gap as this API's auth being disabled elsewhere.
+`GET/PATCH /api/v1/notifications*` (regular REST, header-authenticated)
+cover initial load, unread, and marking read, so a client recovers
+anything missed across an SSE disconnect from the durable store, not from
+Redis.
+
+### Slack delivery reuses the existing integration
+
+No second Slack system: `NotificationDeliveryJob` reads the same
+`Integration` row (`provider: "slack"`) and `bot_token` the OAuth flow
+already connects, and calls a new `SlackOauthClient.post_message` method
+added to the *existing* service class. The target channel is
+`SLACK_NOTIFICATION_CHANNEL` (env var — no per-rule channel picker UI
+exists) — if Slack isn't connected or that var isn't set, delivery fails
+cleanly (`Notification.status = "failed"` with a clear
+`error_message`), never silently.
 
 ## Slack integration (connect/disconnect only — no delivery)
 

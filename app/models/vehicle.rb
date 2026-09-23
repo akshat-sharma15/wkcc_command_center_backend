@@ -1,4 +1,6 @@
 class Vehicle < OperationsRecord
+  include Alertable
+
   belongs_to :hub
   belongs_to :driver, class_name: "WorkforceMember", optional: true
   has_many :trips, dependent: :restrict_with_error

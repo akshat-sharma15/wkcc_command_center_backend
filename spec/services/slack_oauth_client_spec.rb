@@ -88,4 +88,40 @@ RSpec.describe SlackOauthClient do
       expect(described_class.revoke_token(bot_token: "xoxb-x")).to eq(false)
     end
   end
+
+  describe ".post_message" do
+    it "returns Slack's parsed success response, including the message timestamp" do
+      stub_request(:post, "https://slack.com/api/chat.postMessage")
+        .with(
+          headers: { "Authorization" => "Bearer xoxb-real-token", "Content-Type" => "application/json" },
+          body: { channel: "#alerts", text: "*Vehicle Failure*\nVH-1 failed" }.to_json
+        )
+        .to_return(status: 200, body: { ok: true, ts: "1234.5678", channel: "C123" }.to_json)
+
+      result = described_class.post_message(bot_token: "xoxb-real-token", channel: "#alerts",
+        text: "*Vehicle Failure*\nVH-1 failed")
+
+      expect(result["ok"]).to eq(true)
+      expect(result["ts"]).to eq("1234.5678")
+    end
+
+    it "returns Slack's parsed failure response without raising (e.g. bot not in channel)" do
+      stub_request(:post, "https://slack.com/api/chat.postMessage").to_return(
+        status: 200,
+        body: { ok: false, error: "not_in_channel" }.to_json
+      )
+
+      result = described_class.post_message(bot_token: "xoxb-x", channel: "#alerts", text: "hi")
+
+      expect(result["ok"]).to eq(false)
+      expect(result["error"]).to eq("not_in_channel")
+    end
+
+    it "raises SlackApiError on a transport-level failure" do
+      stub_request(:post, "https://slack.com/api/chat.postMessage").to_timeout
+
+      expect { described_class.post_message(bot_token: "xoxb-x", channel: "#alerts", text: "hi") }
+        .to raise_error(SlackOauthClient::SlackApiError)
+    end
+  end
 end
