@@ -44,6 +44,11 @@ Rails.application.routes.draw do
       get "notifications/stream" => "notifications_stream#stream"
       patch "notifications/:id/read" => "notifications#read"
       get "notifications/:id" => "notifications#show"
+
+      # Command Centre AI chatbot (Phase 5) - read-only operational
+      # analytics over the approved views/tables only. See
+      # Api::V1::AiController / CommandCenter::AiChatService.
+      post "ai/chat" => "ai#chat"
     end
   end
 

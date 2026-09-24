@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command Centre AI Assistant</title>
+<style>
+  :root {
+    --cc-navy: #0f1c3f;
+    --cc-navy-dark: #0a1430;
+    --cc-blue: #2563eb;
+    --cc-blue-dark: #1d4ed8;
+    --cc-bg: #f4f6fb;
+    --cc-panel: #ffffff;
+    --cc-border: #e2e6f0;
+    --cc-text: #1a2138;
+    --cc-muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: transparent;
+  }
+
+  /* Host page placeholder content - only relevant when this file is
+     opened directly rather than embedded; the widget itself is
+     positioned fixed so it works the same either way. */
+  .demo-page { padding: 3rem; color: var(--cc-muted); max-width: 700px; }
+  .demo-page h1 { color: var(--cc-navy); font-size: 1.1rem; }
+
+  /* --- Floating launcher bubble --- */
+  #cc-ai-launcher {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--cc-blue), var(--cc-navy));
+    box-shadow: 0 6px 20px rgba(15, 28, 63, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: none;
+    z-index: 9999;
+    transition: transform 0.15s ease;
+  }
+  #cc-ai-launcher:hover { transform: scale(1.06); }
+  #cc-ai-launcher svg { width: 26px; height: 26px; fill: #fff; }
+  #cc-ai-launcher .cc-badge {
+    position: absolute;
+    top: -2px; right: -2px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #22c55e;
+    border: 2px solid #fff;
+  }
+
+  /* --- Chat window --- */
+  #cc-ai-window {
+    position: fixed;
+    bottom: 92px;
+    right: 24px;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    height: 560px;
+    max-height: calc(100vh - 140px);
+    background: var(--cc-panel);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(15, 28, 63, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 9998;
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+  }
+  #cc-ai-window.cc-open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  #cc-ai-header {
+    background: linear-gradient(135deg, var(--cc-navy), var(--cc-navy-dark));
+    color: #fff;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #cc-ai-header .cc-title { display: flex; flex-direction: column; }
+  #cc-ai-header .cc-title strong { font-size: 0.92rem; }
+  #cc-ai-header .cc-title span { font-size: 0.72rem; color: #b7c3e0; margin-top: 2px; }
+  #cc-ai-close {
+    background: rgba(255,255,255,0.12);
+    border: none;
+    color: #fff;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #cc-ai-close:hover { background: rgba(255,255,255,0.22); }
+
+  #cc-ai-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    background: var(--cc-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .cc-msg {
+    max-width: 86%;
+    padding: 9px 12px;
+    border-radius: 12px;
+    font-size: 0.86rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .cc-msg.cc-user {
+    align-self: flex-end;
+    background: var(--cc-blue);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+  .cc-msg.cc-assistant {
+    align-self: flex-start;
+    background: var(--cc-panel);
+    color: var(--cc-text);
+    border: 1px solid var(--cc-border);
+    border-bottom-left-radius: 3px;
+  }
+  .cc-msg.cc-error {
+    align-self: flex-start;
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+  }
+  .cc-msg .cc-sources {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.68rem;
+    color: var(--cc-muted);
+  }
+  .cc-msg.cc-user .cc-sources { color: #dbeafe; }
+
+  .cc-typing { align-self: flex-start; display: flex; gap: 4px; padding: 10px 12px; }
+  .cc-typing span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cc-muted);
+    animation: cc-bounce 1.2s infinite ease-in-out;
+  }
+  .cc-typing span:nth-child(2) { animation-delay: 0.15s; }
+  .cc-typing span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes cc-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+  #cc-ai-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--cc-border);
+    background: var(--cc-panel);
+    flex-shrink: 0;
+  }
+  #cc-ai-input {
+    flex: 1;
+    border: 1px solid var(--cc-border);
+    border-radius: 20px;
+    padding: 9px 14px;
+    font-size: 0.86rem;
+    outline: none;
+  }
+  #cc-ai-input:focus { border-color: var(--cc-blue); }
+  #cc-ai-send {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--cc-blue);
+    color: #fff;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  #cc-ai-send:hover { background: var(--cc-blue-dark); }
+  #cc-ai-send:disabled { opacity: 0.5; cursor: default; }
+  #cc-ai-send svg { width: 16px; height: 16px; fill: #fff; }
+
+  #cc-ai-footer {
+    padding: 6px 14px 10px;
+    font-size: 0.68rem;
+    color: var(--cc-muted);
+    text-align: center;
+    background: var(--cc-panel);
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-page">
+  <h1>Command Centre AI Assistant — widget preview</h1>
+  <p>This page hosts the floating chat widget only. Open the bubble in the bottom-right corner to start.</p>
+</div>
+
+<!-- Floating launcher -->
+<button id="cc-ai-launcher" aria-label="Open Command Centre AI Assistant">
+  <span class="cc-badge"></span>
+  <svg viewBox="0 0 24 24"><path d="M12 3C6.48 3 2 6.94 2 11.8c0 2.6 1.28 4.94 3.34 6.56-.06.86-.36 2.3-1.34 3.64 0 0 2.2-.24 4.12-1.66.74.18 1.54.28 2.38.28.52 0 1.02-.04 1.5-.1M12 3c5.52 0 10 3.94 10 8.8 0 2.36-1.06 4.5-2.8 6.08M22 22l-1.6-1.6M14 11.8h.01M12 11.8h.01M10 11.8h.01"/></svg>
+</button>
+
+<!-- Chat window -->
+<div id="cc-ai-window">
+  <div id="cc-ai-header">
+    <div class="cc-title">
+      <strong>Command Centre Assistant</strong>
+      <span>Hubs · Fleet · Routes · Shipments · Alerts</span>
+    </div>
+    <button id="cc-ai-close" aria-label="Close chat">&#10005;</button>
+  </div>
+
+  <div id="cc-ai-messages"></div>
+
+  <div id="cc-ai-input-row">
+    <input id="cc-ai-input" type="text" placeholder="Ask about hubs, fleet, orders…" autocomplete="off">
+    <button id="cc-ai-send" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+  <div id="cc-ai-footer">Read-only operational analytics · grounded in live Command Centre data</div>
+</div>
+
+<script>
+(function () {
+  var API_URL = "/api/v1/ai/chat";
+  var STORAGE_KEY = "cc_ai_conversation_id";
+
+  var launcher = document.getElementById("cc-ai-launcher");
+  var win = document.getElementById("cc-ai-window");
+  var closeBtn = document.getElementById("cc-ai-close");
+  var messagesEl = document.getElementById("cc-ai-messages");
+  var inputEl = document.getElementById("cc-ai-input");
+  var sendEl = document.getElementById("cc-ai-send");
+
+  var greeted = false;
+
+  function conversationId() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+  }
+  function setConversationId(id) {
+    try { localStorage.setItem(STORAGE_KEY, id); } catch (e) { /* per-viewer convenience only */ }
+  }
+
+  function appendMessage(role, text, sources) {
+    var el = document.createElement("div");
+    el.className = "cc-msg cc-" + role;
+    el.textContent = text;
+    if (sources && sources.length) {
+      var s = document.createElement("span");
+      s.className = "cc-sources";
+      s.textContent = "Source: " + sources.join(", ");
+      el.appendChild(s);
+    }
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  var typingEl = null;
+  function setLoading(isLoading) {
+    sendEl.disabled = isLoading;
+    inputEl.disabled = isLoading;
+    if (isLoading) {
+      typingEl = document.createElement("div");
+      typingEl.className = "cc-typing";
+      typingEl.innerHTML = "<span></span><span></span><span></span>";
+      messagesEl.appendChild(typingEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    } else if (typingEl) {
+      typingEl.remove();
+      typingEl = null;
+    }
+  }
+
+  function openWindow() {
+    win.classList.add("cc-open");
+    if (!greeted) {
+      appendMessage("assistant", "Hi! Ask me about hubs, fleet, routes, orders, packages, or alerts.");
+      greeted = true;
+    }
+    inputEl.focus();
+  }
+  function closeWindow() { win.classList.remove("cc-open"); }
+
+  launcher.addEventListener("click", function () {
+    win.classList.contains("cc-open") ? closeWindow() : openWindow();
+  });
+  closeBtn.addEventListener("click", closeWindow);
+
+  function send() {
+    var message = inputEl.value.trim();
+    if (!message) return;
+
+    appendMessage("user", message);
+    inputEl.value = "";
+    setLoading(true);
+
+    fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: message, conversation_id: conversationId() })
+    })
+      .then(function (response) {
+        return response.json().then(function (body) {
+          if (!response.ok) throw new Error(body.error || ("Request failed (" + response.status + ")"));
+          return body;
+        });
+      })
+      .then(function (body) {
+        if (body.conversation_id) setConversationId(body.conversation_id);
+        appendMessage("assistant", body.answer, body.sources);
+      })
+      .catch(function (err) {
+        appendMessage("error", "Something went wrong: " + err.message);
+      })
+      .finally(function () {
+        setLoading(false);
+        inputEl.focus();
+      });
+  }
+
+  sendEl.addEventListener("click", send);
+  inputEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") send();
+  });
+})();
+</script>
+</body>
+</html>

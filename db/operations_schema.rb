@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -68,6 +68,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
     t.index ["name"], name: "index_event_definitions_on_name", unique: true
   end
 
+  create_table "hub_operations_events", force: :cascade do |t|
+    t.string "bay_reference"
+    t.datetime "created_at", null: false
+    t.string "dock_reference"
+    t.string "event_type", null: false
+    t.bigint "hub_id", null: false
+    t.jsonb "metadata"
+    t.datetime "occurred_at", null: false
+    t.bigint "package_id"
+    t.bigint "trip_id"
+    t.datetime "updated_at", null: false
+    t.bigint "vehicle_id"
+    t.index ["event_type", "occurred_at"], name: "index_hub_operations_events_on_event_type_and_occurred_at"
+    t.index ["hub_id", "occurred_at"], name: "index_hub_operations_events_on_hub_id_and_occurred_at"
+    t.index ["hub_id"], name: "index_hub_operations_events_on_hub_id"
+    t.index ["package_id"], name: "index_hub_operations_events_on_package_id"
+    t.index ["trip_id"], name: "index_hub_operations_events_on_trip_id"
+    t.index ["vehicle_id"], name: "index_hub_operations_events_on_vehicle_id"
+  end
+
   create_table "hubs", force: :cascade do |t|
     t.string "alertable_fields", default: [], null: false, array: true
     t.boolean "allow_alerts", default: false, null: false
@@ -107,22 +127,62 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
     t.index ["status"], name: "index_notifications_on_status"
   end
 
+  create_table "orders", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "customer_reference"
+    t.datetime "delivered_at"
+    t.bigint "destination_hub_id"
+    t.string "order_number", null: false
+    t.bigint "origin_hub_id"
+    t.integer "package_count", default: 0, null: false
+    t.string "priority"
+    t.datetime "promised_delivery_at"
+    t.string "status", default: "pending", null: false
+    t.decimal "total_weight", precision: 10, scale: 2
+    t.datetime "updated_at", null: false
+    t.index ["destination_hub_id"], name: "index_orders_on_destination_hub_id"
+    t.index ["order_number"], name: "index_orders_on_order_number", unique: true
+    t.index ["origin_hub_id"], name: "index_orders_on_origin_hub_id"
+    t.index ["promised_delivery_at"], name: "index_orders_on_promised_delivery_at"
+    t.index ["status"], name: "index_orders_on_status"
+  end
+
+  create_table "package_status_transitions", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "from_status"
+    t.bigint "location_id"
+    t.string "location_type"
+    t.datetime "occurred_at", null: false
+    t.bigint "package_id", null: false
+    t.string "to_status", null: false
+    t.index ["location_type", "location_id"], name: "index_package_status_transitions_on_location"
+    t.index ["package_id", "occurred_at"], name: "index_package_status_transitions_on_package_id_and_occurred_at"
+    t.index ["package_id"], name: "index_package_status_transitions_on_package_id"
+    t.index ["to_status"], name: "index_package_status_transitions_on_to_status"
+  end
+
   create_table "packages", force: :cascade do |t|
     t.string "alertable_fields", default: [], null: false, array: true
     t.boolean "allow_alerts", default: false, null: false
     t.datetime "created_at", null: false
     t.integer "damaged_quantity", default: 0, null: false
+    t.datetime "delivered_at"
     t.integer "expected_quantity", default: 0, null: false
     t.string "identifier", null: false
     t.bigint "location_id", null: false
     t.string "location_type", null: false
+    t.bigint "order_id"
+    t.datetime "promised_delivery_at"
     t.integer "received_quantity", default: 0, null: false
     t.integer "short_quantity", default: 0, null: false
     t.string "status", default: "pending", null: false
     t.bigint "trip_id"
     t.datetime "updated_at", null: false
+    t.index ["delivered_at"], name: "index_packages_on_delivered_at"
     t.index ["identifier"], name: "index_packages_on_identifier", unique: true
     t.index ["location_type", "location_id"], name: "index_packages_on_location"
+    t.index ["order_id"], name: "index_packages_on_order_id"
+    t.index ["promised_delivery_at"], name: "index_packages_on_promised_delivery_at"
     t.index ["status"], name: "index_packages_on_status"
     t.index ["trip_id"], name: "index_packages_on_trip_id"
   end
@@ -158,6 +218,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
     t.index ["vehicle_id"], name: "index_trips_on_vehicle_id"
   end
 
+  create_table "vehicle_operation_events", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.jsonb "metadata"
+    t.datetime "occurred_at", null: false
+    t.bigint "trip_id"
+    t.datetime "updated_at", null: false
+    t.bigint "vehicle_id", null: false
+    t.index ["event_type", "occurred_at"], name: "index_vehicle_operation_events_on_event_type_and_occurred_at"
+    t.index ["trip_id", "occurred_at"], name: "index_vehicle_operation_events_on_trip_id_and_occurred_at"
+    t.index ["trip_id"], name: "index_vehicle_operation_events_on_trip_id"
+    t.index ["vehicle_id", "occurred_at"], name: "index_vehicle_operation_events_on_vehicle_id_and_occurred_at"
+    t.index ["vehicle_id"], name: "index_vehicle_operation_events_on_vehicle_id"
+  end
+
   create_table "vehicles", force: :cascade do |t|
     t.string "alertable_fields", default: [], null: false, array: true
     t.boolean "allow_alerts", default: false, null: false
@@ -165,7 +240,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
     t.datetime "created_at", null: false
     t.string "current_location"
     t.bigint "driver_id"
+    t.decimal "fuel_efficiency_kmpl", precision: 6, scale: 2
     t.bigint "hub_id", null: false
+    t.decimal "last_known_latitude", precision: 9, scale: 6
+    t.decimal "last_known_longitude", precision: 9, scale: 6
+    t.datetime "last_location_at"
+    t.decimal "mileage_km", precision: 10, scale: 2
     t.string "number", null: false
     t.string "status", default: "active", null: false
     t.datetime "updated_at", null: false
@@ -208,11 +288,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_22_163100) do
 
   add_foreign_key "alert_rules", "event_definitions"
   add_foreign_key "alerts", "alert_rules"
+  add_foreign_key "hub_operations_events", "hubs"
+  add_foreign_key "hub_operations_events", "packages"
+  add_foreign_key "hub_operations_events", "trips"
+  add_foreign_key "hub_operations_events", "vehicles"
   add_foreign_key "notifications", "alerts"
+  add_foreign_key "orders", "hubs", column: "destination_hub_id"
+  add_foreign_key "orders", "hubs", column: "origin_hub_id"
+  add_foreign_key "package_status_transitions", "packages"
+  add_foreign_key "packages", "orders"
   add_foreign_key "packages", "trips"
   add_foreign_key "trips", "hubs", column: "destination_hub_id"
   add_foreign_key "trips", "hubs", column: "origin_hub_id"
   add_foreign_key "trips", "vehicles"
+  add_foreign_key "vehicle_operation_events", "trips"
+  add_foreign_key "vehicle_operation_events", "vehicles"
   add_foreign_key "vehicles", "hubs"
   add_foreign_key "vehicles", "workforce_members", column: "driver_id"
   add_foreign_key "workforce_members", "hubs"
