@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(node --check app.js)",
+      "Bash(node --check data.js)",
+      "Bash(node --check filters.js)",
+      "Bash(node --check icons.js)",
+      "Bash(find / -iname \"*.claude*\" -maxdepth 2)",
+      "Read(//Users/mac/.claude/skills/**)",
+      "Bash(find / -maxdepth 6 -iname \"chromium-cli\" -type d)",
+      "Bash(lsof -ti:8765 -sTCP:LISTEN)",
+      "Bash(xargs -r kill)",
+      "Bash(bin/rails db:migrate:operations)",
+      "Bash(bin/rails runner ' *)",
+      "Bash(curl -s \"http://localhost:3001/api/v1/fleet-monitoring/vehicles?status=maintenance\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"http://localhost:3001/api/v1/fleet-monitoring/hubs\")",
+      "Bash(cd /Users/mac/Wk_command_center && echo \"=== superset_config.py \\(top level\\) ===\" && cat superset_config.py 2>/dev/null | head -200)",
+      "Read(//Users/mac/Wk_command_center/**)"
+    ]
+  }
+}

@@ -7,6 +7,13 @@ class Hub < OperationsRecord
   has_many :inbound_trips, class_name: "Trip", foreign_key: :destination_hub_id, inverse_of: :destination_hub, dependent: :restrict_with_error
   has_many :packages, as: :location, dependent: :restrict_with_error
 
+  # Fleet Monitoring POC addition (additive - the existing `location`
+  # string column above is untouched). Named `geo_location` to avoid
+  # clashing with the existing `location` string attribute and the
+  # `packages ... as: :location` polymorphic association. Hubs are
+  # deliberately not associated with a Vendor - only vehicles are.
+  belongs_to :geo_location, class_name: "Location", foreign_key: :location_id, inverse_of: :hubs, optional: true
+
   enum :operational_status, { active: "active", degraded: "degraded", closed: "closed" }, prefix: true
 
   validates :name, presence: true

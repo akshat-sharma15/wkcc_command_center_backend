@@ -44,6 +44,28 @@ Rails.application.routes.draw do
       get "notifications/stream" => "notifications_stream#stream"
       patch "notifications/:id/read" => "notifications#read"
       get "notifications/:id" => "notifications#show"
+
+      # Command Centre AI chatbot (Phase 5) - read-only operational
+      # analytics over the approved views/tables only. See
+      # Api::V1::AiController / CommandCenter::AiChatService.
+      post "ai/chat" => "ai#chat"
+      # Chart-scoped chat. Called by Superset (server-to-server, service
+      # token) rather than the browser, so the chart's dataset is resolved
+      # and access-checked before any context reaches the model.
+      post "ai/chart_chat" => "ai#chart_chat"
+
+      # Fleet Monitoring API POC - additive and isolated from the
+      # Command Center resources above (they keep serving the full
+      # dataset unchanged). Backs the truck_monitoring frontend's map.
+      # See app/controllers/api/v1/fleet_monitoring/.
+      namespace :fleet_monitoring, path: "fleet-monitoring" do
+        get "vehicles" => "vehicles#index"
+        get "hubs" => "hubs#index"
+        get "packages" => "packages#index"
+        get "search" => "search#vehicle"
+        get "search/package" => "search#package"
+        get "search/suggestions" => "search_suggestions#index"
+      end
     end
   end
 
