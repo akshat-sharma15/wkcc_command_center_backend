@@ -4,7 +4,10 @@ RSpec.describe "Api::V1::Ai", type: :request do
   before(:context) { AiChatFixtures.seed! }
   after(:context) { AiChatFixtures.cleanup! }
 
-  let(:endpoint) { "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent" }
+  # Derived rather than hardcoded: GeminiClient resolves its model the same
+  # way, so an environment that pins GEMINI_MODEL doesn't break the stub.
+  let(:model) { ENV.fetch("GEMINI_MODEL", GeminiClient::DEFAULT_MODEL) }
+  let(:endpoint) { "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent" }
 
   around do |example|
     original = ENV["GEMINI_API_KEY"]

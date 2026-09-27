@@ -19,6 +19,10 @@ module Api
         response.headers["Content-Type"] = "text/event-stream"
         response.headers["Cache-Control"] = "no-cache"
         response.headers["X-Accel-Buffering"] = "no"
+        # CORS headers for browser SSE connections from Superset frontend
+        response.headers["Access-Control-Allow-Origin"] = ENV.fetch("FRONTEND_CORS_ORIGIN", "http://localhost:9000")
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Vary"] = "Origin"
 
         write_sse(event: "connected", data: { user_id: user_id })
         subscribe_and_stream(user_id)

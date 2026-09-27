@@ -71,9 +71,14 @@ module CommandCenter
       new(...).call
     end
 
-    def initialize(message:, session_key: nil)
-      @message = message.to_s
-      @conversation = AiConversation.find_or_create_by_session_key!(session_key)
+    # `chart_scope` (a CommandCenter::ChartScope) confines the whole
+    # conversation to one Superset chart's dataset. When it is present and no
+    # message is given, the turn becomes the chart's opening summary, so the
+    # user doesn't have to ask for one.
+    def initialize(message:, session_key: nil, chart_scope: nil)
+      @chart_scope = chart_scope
+      @message = message.presence || @chart_scope&.summary_prompt.to_s
+      @conversation = AiConversation.find_or_create_for_scope!(session_key, @chart_scope&.scope_key)
     end
 
     def call
@@ -94,7 +99,7 @@ module CommandCenter
         response = client.generate(
           contents: history + turn_contents,
           tools: [ GeminiTools.query_command_center_declaration ],
-          system_instruction: SYSTEM_INSTRUCTIONS
+          system_instruction: system_instruction
         )
         parts = extract_parts(response)
         function_call_parts = parts.select { |p| p["functionCall"] }
@@ -155,11 +160,49 @@ module CommandCenter
       parts.filter_map { |p| p["text"] }.join("\n")
     end
 
+    def system_instruction
+      return SYSTEM_INSTRUCTIONS if @chart_scope.nil?
+
+      "#{SYSTEM_INSTRUCTIONS}\n\n#{@chart_scope.system_instruction_addendum}"
+    end
+
+    # The prompt asks the model to stay on the chart's dataset; this enforces
+    # it. A chart-scoped conversation cannot read any other source even if the
+    # model is talked into requesting one.
+    def source_allowed?(source)
+      return true if @chart_scope.nil?
+
+      @chart_scope.queryable? && source.to_s == @chart_scope.allowed_source
+    end
+
+    def out_of_scope_error
+      if @chart_scope.queryable?
+        "This conversation is scoped to the chart's dataset. You may only " \
+        "query source=\"#{@chart_scope.allowed_source}\"."
+      else
+        "This chart's dataset is not an approved Command Centre source, so no " \
+        "query can be run. Answer from the chart configuration only."
+      end
+    end
+
     def run_tool(fn_call, user_message)
       return { error: "Unknown tool: #{fn_call['name']}" } unless fn_call["name"] == GeminiTools::QUERY_COMMAND_CENTER
 
       started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       request = GeminiTools.build_query_request(fn_call["args"] || {})
+
+      unless source_allowed?(request[:source])
+        Rails.logger.warn(
+          "[AiChatService] blocked out-of-scope source #{request[:source].inspect} " \
+          "for scope #{@chart_scope.scope_key}"
+        )
+        log_query(user_message: user_message, request: request, result: nil,
+                  started_at: started_at, success: false, error: "out_of_scope_source")
+        # Deliberately no :source - nothing was read, so it must not appear in
+        # the answer's cited sources, and the rejected source's name should not
+        # travel back to the caller.
+        return { error: out_of_scope_error }
+      end
 
       begin
         result = QueryService.call(request)

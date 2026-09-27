@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -96,12 +96,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
     t.string "code", null: false
     t.datetime "created_at", null: false
     t.string "location"
+    t.bigint "location_id"
     t.string "name", null: false
     t.string "operational_status", default: "active", null: false
     t.integer "parking_capacity"
     t.datetime "updated_at", null: false
     t.index ["code"], name: "index_hubs_on_code", unique: true
+    t.index ["location_id"], name: "index_hubs_on_location_id"
     t.index ["operational_status"], name: "index_hubs_on_operational_status"
+  end
+
+  create_table "locations", force: :cascade do |t|
+    t.string "city", null: false
+    t.string "country", default: "India", null: false
+    t.datetime "created_at", null: false
+    t.decimal "latitude", precision: 9, scale: 6, null: false
+    t.decimal "longitude", precision: 9, scale: 6, null: false
+    t.string "state", null: false
+    t.datetime "updated_at", null: false
+    t.index ["city", "state"], name: "index_locations_on_city_and_state"
   end
 
   create_table "notifications", force: :cascade do |t|
@@ -239,7 +252,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
     t.integer "capacity"
     t.datetime "created_at", null: false
     t.string "current_location"
+    t.bigint "current_location_id"
     t.bigint "driver_id"
+    t.boolean "fleet_monitoring_poc", default: false, null: false
     t.decimal "fuel_efficiency_kmpl", precision: 6, scale: 2
     t.bigint "hub_id", null: false
     t.decimal "last_known_latitude", precision: 9, scale: 6
@@ -251,10 +266,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
     t.datetime "updated_at", null: false
     t.string "vehicle_type", null: false
     t.string "vendor"
+    t.bigint "vendor_id"
+    t.index ["current_location_id"], name: "index_vehicles_on_current_location_id"
     t.index ["driver_id"], name: "index_vehicles_on_driver_id"
+    t.index ["fleet_monitoring_poc"], name: "index_vehicles_on_fleet_monitoring_poc"
     t.index ["hub_id"], name: "index_vehicles_on_hub_id"
     t.index ["number"], name: "index_vehicles_on_number", unique: true
     t.index ["status"], name: "index_vehicles_on_status"
+    t.index ["vendor_id"], name: "index_vehicles_on_vendor_id"
+  end
+
+  create_table "vendors", force: :cascade do |t|
+    t.string "code", null: false
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code"], name: "index_vendors_on_code", unique: true
+    t.index ["name"], name: "index_vendors_on_name", unique: true
   end
 
   create_table "warehouses", force: :cascade do |t|
@@ -277,6 +305,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
     t.bigint "hub_id", null: false
     t.string "identifier", null: false
     t.string "name", null: false
+    t.string "phone_number"
     t.string "role_type", null: false
     t.string "shift"
     t.datetime "updated_at", null: false
@@ -292,6 +321,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
   add_foreign_key "hub_operations_events", "packages"
   add_foreign_key "hub_operations_events", "trips"
   add_foreign_key "hub_operations_events", "vehicles"
+  add_foreign_key "hubs", "locations"
   add_foreign_key "notifications", "alerts"
   add_foreign_key "orders", "hubs", column: "destination_hub_id"
   add_foreign_key "orders", "hubs", column: "origin_hub_id"
@@ -304,6 +334,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_100500) do
   add_foreign_key "vehicle_operation_events", "trips"
   add_foreign_key "vehicle_operation_events", "vehicles"
   add_foreign_key "vehicles", "hubs"
+  add_foreign_key "vehicles", "locations", column: "current_location_id"
+  add_foreign_key "vehicles", "vendors"
   add_foreign_key "vehicles", "workforce_members", column: "driver_id"
   add_foreign_key "workforce_members", "hubs"
 end

@@ -10,15 +10,17 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_24_180200) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_27_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "ai_conversations", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "last_message_at"
+    t.string "scope_key"
     t.string "session_key", null: false
     t.datetime "updated_at", null: false
+    t.index ["scope_key"], name: "index_ai_conversations_on_scope_key"
     t.index ["session_key"], name: "index_ai_conversations_on_session_key", unique: true
   end
 
