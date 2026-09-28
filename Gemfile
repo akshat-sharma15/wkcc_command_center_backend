@@ -36,7 +36,7 @@ gem "sidekiq", "~> 7.3"
 gem "connection_pool", "~> 2.5"
 
 # Lightweight pagination for index actions.
-gem "pagy", "~> 9.0"
+gem "pagy", "~> 43.6"
 
 # Rack CORS for cross-origin requests (the Superset frontend dev server runs
 # on a different origin and will eventually consume the SSE stream directly).
