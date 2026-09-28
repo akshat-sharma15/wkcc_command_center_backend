@@ -11,14 +11,18 @@ class EventDefinition < OperationsRecord
       "Inbound Truck",
       "Outbound Truck",
       "Parking Space",
-      "Capacity"
+      "Capacity",
+      "Hub Congestion"
     ],
     "Fleet / Transport" => [
       "Failure of Truck with Goods Damaged",
       "Need Vehicle Replacement",
       "Route Diversion",
       "Cancel Departure",
-      "Accident"
+      "Accident",
+      "Vehicle ETA Breach Risk",
+      "Vehicle GPS Stale",
+      "Trip Missed Departure Risk"
     ],
     "Workforce" => [
       "Shift Change",
@@ -26,7 +30,8 @@ class EventDefinition < OperationsRecord
     ],
     "Sales" => [
       "Low Inbound Calls",
-      "Low Outbound Calls"
+      "Low Outbound Calls",
+      "Customer SLA Breach"
     ],
     "Finance" => [
       "Payment Dues"

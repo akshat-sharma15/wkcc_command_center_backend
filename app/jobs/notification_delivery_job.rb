@@ -39,6 +39,7 @@ class NotificationDeliveryJob < ApplicationJob
     return notification.mark_failed!("SLACK_NOTIFICATION_CHANNEL is not configured") if channel.blank?
 
     result = SlackOauthClient.post_message(bot_token: integration.bot_token, channel: channel, text: slack_text(notification))
+    result = retry_after_joining(integration.bot_token, channel, notification) if result["error"] == "not_in_channel"
 
     if result["ok"]
       notification.mark_delivered!(external_reference: result["ts"])
@@ -48,6 +49,21 @@ class NotificationDeliveryJob < ApplicationJob
   rescue SlackOauthClient::SlackApiError => e
     notification.mark_failed!(e.message)
     raise
+  end
+
+  # "not_in_channel" means the bot has never been added to the target
+  # channel. Rather than fail every delivery until a human runs /invite in
+  # Slack, try to self-heal by joining the (public) channel and posting
+  # again once. Only ever improves the outcome — if the join itself fails
+  # (private channel, or the workspace's token predates the channels:join
+  # scope), the original not_in_channel result is what gets reported.
+  def retry_after_joining(bot_token, channel, notification)
+    join_result = SlackOauthClient.join_channel(bot_token: bot_token, channel: channel)
+    return { "ok" => false, "error" => "not_in_channel" } unless join_result["ok"]
+
+    SlackOauthClient.post_message(bot_token: bot_token, channel: channel, text: slack_text(notification))
+  rescue SlackOauthClient::SlackApiError
+    { "ok" => false, "error" => "not_in_channel" }
   end
 
   def slack_text(notification)

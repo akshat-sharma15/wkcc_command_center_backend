@@ -20,7 +20,7 @@ class AlertEvaluationJob < ApplicationJob
     relevant_fields = changed_fields & record.alertable_fields
     return if relevant_fields.empty?
 
-    AlertRule.where(enabled: true, trigger_type: "condition", group: group, field: relevant_fields)
+    AlertRule.active.where(enabled: true, trigger_type: "condition", group: group, field: relevant_fields)
       .find_each { |rule| evaluate_rule(rule, record) }
   end
 

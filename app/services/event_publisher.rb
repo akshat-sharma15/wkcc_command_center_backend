@@ -38,7 +38,7 @@ class EventPublisher
 
     group = "#{GROUP_PREFIX}#{entity_type}"
 
-    AlertRule.where(enabled: true, trigger_type: "event", event_definition_id: event_definition.id).find_each do |rule|
+    AlertRule.active.where(enabled: true, trigger_type: "event", event_definition_id: event_definition.id).find_each do |rule|
       next if Alert.exists?(alert_rule_id: rule.id, group: group, record_id: entity_id, status: "open")
 
       alert = create_alert(rule, event_definition, entity_type, entity_id, payload, group)

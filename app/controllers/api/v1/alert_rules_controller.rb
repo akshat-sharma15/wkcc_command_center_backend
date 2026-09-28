@@ -4,7 +4,7 @@ module Api
       before_action :set_alert_rule, only: %i[show update destroy]
 
       def index
-        pagy, alert_rules = pagy(AlertRule.order(created_at: :desc))
+        pagy, alert_rules = pagy(AlertRule.active.order(created_at: :desc))
         response.headers.merge!(pagy_headers_merge(pagy))
         render json: alert_rules.map { |r| AlertRuleSerializer.new(r).as_json }
       end
@@ -25,14 +25,14 @@ module Api
       end
 
       def destroy
-        @alert_rule.destroy!
+        @alert_rule.soft_delete!
         head :no_content
       end
 
       private
 
       def set_alert_rule
-        @alert_rule = AlertRule.find(params[:id])
+        @alert_rule = AlertRule.active.find(params[:id])
       end
 
       # Every field here still goes through AlertRule's own validations

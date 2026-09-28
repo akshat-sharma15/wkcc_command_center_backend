@@ -36,6 +36,9 @@ class AlertRule < OperationsRecord
   # outside this list, so such a value is inert rather than erroring.
   NOTIFICATION_CHANNELS = %w[in_app slack].freeze
 
+  scope :active, -> { where(deleted_at: nil) }
+  scope :deleted, -> { where.not(deleted_at: nil) }
+
   # Which comparison operators are meaningful for a given ActiveRecord
   # column type. The single source of truth for operator validity — both
   # this model's own validation and Api::V1::AlertResourcesController's
@@ -92,6 +95,14 @@ class AlertRule < OperationsRecord
   # never Object.const_get/constantize on the raw `group` string.
   def target_model
     ALERTABLE_MODELS[group]
+  end
+
+  def soft_delete!
+    update!(deleted_at: Time.current, enabled: false)
+  end
+
+  def deleted?
+    deleted_at.present?
   end
 
   # Operators valid for `field`'s actual column type on `model`. Returns

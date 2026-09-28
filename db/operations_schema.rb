@@ -10,13 +10,14 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_28_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "alert_rules", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id"
+    t.datetime "deleted_at"
     t.boolean "enabled", default: true, null: false
     t.bigint "event_definition_id"
     t.string "field"
@@ -31,6 +32,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.string "trigger_type", default: "condition", null: false
     t.datetime "updated_at", null: false
     t.jsonb "value"
+    t.index ["deleted_at"], name: "index_alert_rules_on_deleted_at"
     t.index ["enabled"], name: "index_alert_rules_on_enabled"
     t.index ["event_definition_id"], name: "index_alert_rules_on_event_definition_id"
     t.index ["group"], name: "index_alert_rules_on_group"

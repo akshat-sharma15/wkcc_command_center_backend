@@ -54,7 +54,7 @@ class AlertNotificationMessageBuilder
   def entity_label
     if @alert_rule.event_trigger?
       entity_type = @alert.metadata&.dig("entity_type") || "Entity"
-      return "#{entity_type} ##{@alert.record_id}"
+      return named_event_entity_label(entity_type) || "#{entity_type} ##{@alert.record_id}"
     end
 
     model = AlertRule::ALERTABLE_MODELS[@alert.group]
@@ -67,6 +67,34 @@ class AlertNotificationMessageBuilder
     end
     return "#{model_name} ##{@alert.record_id}" unless identifying_attribute
 
-    "#{model_name} #{record.public_send(identifying_attribute)}"
+    prefixed_label(model_name, record.public_send(identifying_attribute))
+  end
+
+  # Avoids "Hub Bhopal North Hub" when the identifying value (e.g. a Hub's
+  # own `name`) already contains the model name as a word, anywhere in it.
+  def prefixed_label(model_name, value)
+    value.to_s.match?(/\b#{Regexp.escape(model_name)}\b/i) ? value.to_s : "#{model_name} #{value}"
+  end
+
+  # Best-effort upgrade for event-triggered alerts only: if the caller's
+  # free-text entity_type happens to match one of the known alertable
+  # models (e.g. "hubs", "vehicles"), resolve the real record's name for a
+  # readable label ("Indore Regional Hub" instead of "Hub #1"). Returns
+  # nil on any mismatch so the caller's generic fallback still applies —
+  # entity_type remains free text with no required relationship to
+  # ALERTABLE_MODELS.
+  def named_event_entity_label(entity_type)
+    model = AlertRule::ALERTABLE_MODELS[entity_type.to_s.downcase]
+    return nil unless model
+
+    record = model.find_by(id: @alert.record_id)
+    return nil unless record
+
+    identifying_attribute = IDENTIFYING_ATTRIBUTES.find do |attr|
+      record.respond_to?(attr) && record.public_send(attr).present?
+    end
+    return nil unless identifying_attribute
+
+    prefixed_label(model.model_name.human, record.public_send(identifying_attribute))
   end
 end
