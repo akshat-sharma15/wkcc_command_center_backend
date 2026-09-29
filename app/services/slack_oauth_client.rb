@@ -15,6 +15,7 @@ class SlackOauthClient
   TOKEN_URL = "https://slack.com/api/oauth.v2.access"
   REVOKE_URL = "https://slack.com/api/auth.revoke"
   POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+  UPDATE_MESSAGE_URL = "https://slack.com/api/chat.update"
   JOIN_CHANNEL_URL = "https://slack.com/api/conversations.join"
 
   # chat:write alone only lets the bot post to channels it has already
@@ -79,17 +80,34 @@ class SlackOauthClient
   # Slack-reported failure — "ok": false is a normal outcome the caller
   # handles, e.g. the bot not being in the target channel). Only a
   # transport-level failure raises, same convention as #exchange_code.
-  def self.post_message(bot_token:, channel:, text:)
+  # `blocks` (optional Block Kit layout) renders the rich message; `text`
+  # stays the notification/accessibility fallback Slack requires.
+  def self.post_message(bot_token:, channel:, text:, blocks: nil)
     uri = URI(POST_MESSAGE_URL)
     request = Net::HTTP::Post.new(uri)
     request["Authorization"] = "Bearer #{bot_token}"
     request["Content-Type"] = "application/json"
-    request.body = { channel: channel, text: text }.to_json
+    request.body = { channel: channel, text: text, blocks: blocks.presence }.compact.to_json
 
     response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
     JSON.parse(response.body)
   rescue JSON::ParserError, Timeout::Error, SocketError, Errno::ECONNREFUSED => e
     raise SlackApiError, "Slack chat.postMessage failed: #{e.class}"
+  end
+
+  # Re-renders a previously posted message (e.g. an incident whose status
+  # changed). Same raise/return convention as #post_message.
+  def self.update_message(bot_token:, channel:, ts:, text:, blocks: nil)
+    uri = URI(UPDATE_MESSAGE_URL)
+    request = Net::HTTP::Post.new(uri)
+    request["Authorization"] = "Bearer #{bot_token}"
+    request["Content-Type"] = "application/json"
+    request.body = { channel: channel, ts: ts, text: text, blocks: blocks.presence }.compact.to_json
+
+    response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
+    JSON.parse(response.body)
+  rescue JSON::ParserError, Timeout::Error, SocketError, Errno::ECONNREFUSED => e
+    raise SlackApiError, "Slack chat.update failed: #{e.class}"
   end
 
   # Self-heal path for "not_in_channel": have the bot join the (public)

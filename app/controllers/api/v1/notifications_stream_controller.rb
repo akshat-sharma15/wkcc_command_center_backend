@@ -56,7 +56,9 @@ module Api
             on.message do |_channel, payload|
               message_received = true
               data = JSON.parse(payload)
-              write_sse(event: "notification", id: data["id"], data: data)
+              # Payloads may name their own event (e.g. "incident_update");
+              # plain notifications keep the "notification" event.
+              write_sse(event: data["event"] || "notification", id: data["id"], data: data)
             end
           end
 

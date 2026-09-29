@@ -31,19 +31,27 @@ class EventPublisher
   # acknowledged/resolved, publishing again creates a genuinely new Alert
   # — legitimate separate occurrences (e.g. the same vehicle failing again
   # next month) are never collapsed.
+  # Returns the Alerts created by this publish (empty when no enabled
+  # rule matched or every match was an open duplicate).
   def self.publish(event_definition:, entity_type:, entity_id:, payload: {})
     validate_event_definition!(event_definition)
     raise InvalidEvent, "entity_type is required" if entity_type.blank?
     raise InvalidEvent, "entity_id is required" if entity_id.blank?
 
     group = "#{GROUP_PREFIX}#{entity_type}"
+    created = []
 
     AlertRule.active.where(enabled: true, trigger_type: "event", event_definition_id: event_definition.id).find_each do |rule|
       next if Alert.exists?(alert_rule_id: rule.id, group: group, record_id: entity_id, status: "open")
 
       alert = create_alert(rule, event_definition, entity_type, entity_id, payload, group)
+      # No-op for ordinary events; advanced incidents (IncidentCatalog)
+      # get their operational snapshot before notifications are built.
+      AlertEnrichmentService.enrich!(alert, event_definition)
       AlertNotifier.notify(alert, rule)
+      created << alert
     end
+    created
   end
 
   def self.validate_event_definition!(event_definition)

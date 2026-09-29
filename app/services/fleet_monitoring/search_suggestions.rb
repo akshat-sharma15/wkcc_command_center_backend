@@ -30,7 +30,7 @@ module FleetMonitoring
       {
         query: query,
         limit: limit,
-        suggestions: { vehicles: vehicles, hubs: hubs, packages: packages }
+        suggestions: { vehicles: vehicles, hubs: hubs, packages: packages, waybills: waybills }
       }
     end
 
@@ -98,6 +98,27 @@ module FleetMonitoring
                  label: package.identifier,
                  detail: package_whereabouts(package),
                  status: PackagePresenter::STATUS_MAP.fetch(package.status, "AT HUB")
+               }
+             end
+    end
+
+    # Waybill numbers match ignoring case and hyphens ("wb0623" ->
+    # WB-062320), prefix first; the normalized-prefix LIKE uses
+    # index_waybills_on_normalized_number.
+    def waybills
+      normalized = ActiveRecord::Base.sanitize_sql_like(query.upcase.delete("^A-Z0-9"))
+      return [] if normalized.length < MIN_QUERY_LENGTH
+
+      Waybill.includes(:vehicle, :origin_hub, :destination_hub)
+             .where("upper(replace(waybills.waybill_number, '-', '')) LIKE ?", "#{normalized}%")
+             .order(:waybill_number).limit(limit)
+             .map do |waybill|
+               {
+                 kind: "waybill",
+                 waybill_number: waybill.waybill_number,
+                 label: waybill.waybill_number,
+                 detail: "#{waybill.origin_hub.name} → #{waybill.destination_hub.name} · #{waybill.vehicle.number}",
+                 status: waybill.status.upcase.tr("_", " ")
                }
              end
     end

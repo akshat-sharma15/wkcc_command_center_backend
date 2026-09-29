@@ -48,6 +48,9 @@ module Api
           :name, :trigger_type, :event_definition_id,
           :group, :field, :operator, :value, :severity, :notify,
           :recipient_type, :recipient_id, :enabled,
+          :primary_assignee_type, :primary_assignee_id,
+          :secondary_assignee_type, :secondary_assignee_id,
+          :escalation_after_minutes,
           notification_channels: []
         )
       end

@@ -32,6 +32,13 @@ events.each do |event_data|
   end
 end
 
+# Advanced operational incidents, keyed (vehicle.failure,
+# hub.extra_vehicle_request, route.diversion) - see IncidentCatalog.
+puts "\n[ADVANCED INCIDENTS]"
+IncidentCatalog.ensure_event_definitions!.each do |event_def|
+  puts "  ✓ #{event_def.key}: #{event_def.name} (id=#{event_def.id})"
+end
+
 puts "\n[SUMMARY]"
 puts "  - Created: #{created.count}"
 puts "  - Skipped (already exist): #{skipped.count}"

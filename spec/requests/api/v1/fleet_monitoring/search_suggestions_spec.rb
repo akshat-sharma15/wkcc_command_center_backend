@@ -163,7 +163,7 @@ RSpec.describe "Api::V1::FleetMonitoring::SearchSuggestions", type: :request do
       expect(response).to have_http_status(:ok)
       expect(body).to eq(
         "query" => "nomatch", "limit" => 5,
-        "suggestions" => { "vehicles" => [], "hubs" => [], "packages" => [] }
+        "suggestions" => { "vehicles" => [], "hubs" => [], "packages" => [], "waybills" => [] }
       )
     end
   end

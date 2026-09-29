@@ -19,6 +19,9 @@ class AlertNotificationMessageBuilder
   end
 
   def message
+    incident_summary = @alert.metadata&.dig("incident", "summary")
+    return incident_summary if incident_summary.present?
+
     if @alert_rule.event_trigger?
       "#{entity_label} triggered #{@alert.metadata['event_definition_name'] || 'an event'}."
     else
@@ -37,7 +40,12 @@ class AlertNotificationMessageBuilder
       triggered_at: @alert.triggered_at&.iso8601
     }
 
-    if @alert_rule.event_trigger?
+    if IncidentNotificationPresenter.new(@alert).advanced?
+      # Advanced incidents: the shared compact incident card (the same one
+      # Slack renders), not the full enrichment snapshot.
+      base.merge((@alert.metadata || {}).except("incident", "history"))
+          .merge(incident: IncidentNotificationPresenter.new(@alert).as_json)
+    elsif @alert_rule.event_trigger?
       base.merge(@alert.metadata || {})
     else
       base.merge(

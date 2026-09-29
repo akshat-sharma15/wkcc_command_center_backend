@@ -35,6 +35,11 @@ class AlertRule < OperationsRecord
   # AlertNotifier) simply never builds a Notification for a channel
   # outside this list, so such a value is inert rather than erroring.
   NOTIFICATION_CHANNELS = %w[in_app slack].freeze
+  # Assignees (the responsible person/team) use the same logical Superset
+  # reference convention as recipients (who gets notified) but are a
+  # separate concept - see Alert#assign_primary_from_rule.
+  ASSIGNEE_TYPES = RECIPIENT_TYPES
+  ASSIGNEE_LEVELS = %w[primary secondary].freeze
 
   scope :active, -> { where(deleted_at: nil) }
   scope :deleted, -> { where.not(deleted_at: nil) }
@@ -83,6 +88,12 @@ class AlertRule < OperationsRecord
   validate :recipient_must_exist_in_superset
   validate :event_definition_must_exist_if_given, if: :event_trigger?
 
+  validates :primary_assignee_type, :secondary_assignee_type, inclusion: { in: ASSIGNEE_TYPES, allow_blank: true }
+  validates :escalation_after_minutes, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
+  validate :assignee_pairs_must_be_complete
+  validate :secondary_assignee_requires_primary
+  validate :assignees_must_exist_in_superset
+
   def event_trigger?
     trigger_type == "event"
   end
@@ -95,6 +106,16 @@ class AlertRule < OperationsRecord
   # never Object.const_get/constantize on the raw `group` string.
   def target_model
     ALERTABLE_MODELS[group]
+  end
+
+  # { type:, id: } for the "primary"/"secondary" point of contact, or nil
+  # when that level isn't configured.
+  def assignee_for(level)
+    return nil unless ASSIGNEE_LEVELS.include?(level.to_s)
+
+    type = public_send("#{level}_assignee_type")
+    id = public_send("#{level}_assignee_id")
+    type.present? && id.present? ? { type: type, id: id } : nil
   end
 
   def soft_delete!
@@ -190,6 +211,35 @@ class AlertRule < OperationsRecord
     end
 
     errors.add(:recipient_id, "does not exist in Superset") unless exists
+  end
+
+  def assignee_pairs_must_be_complete
+    ASSIGNEE_LEVELS.each do |level|
+      type = public_send("#{level}_assignee_type")
+      id = public_send("#{level}_assignee_id")
+      next if type.present? == id.present?
+
+      errors.add(:"#{level}_assignee_id", "and #{level}_assignee_type must be given together")
+    end
+  end
+
+  def secondary_assignee_requires_primary
+    return if secondary_assignee_type.blank? || primary_assignee_type.present?
+
+    errors.add(:secondary_assignee_type, "requires a primary assignee")
+  end
+
+  # Same "only enforced when Superset is configured" rule as recipients.
+  def assignees_must_exist_in_superset
+    return unless SupersetDirectory.configured?
+
+    ASSIGNEE_LEVELS.each do |level|
+      assignee = assignee_for(level)
+      next if assignee.nil? || !ASSIGNEE_TYPES.include?(assignee[:type])
+      next if SupersetDirectory.resolve_principal(assignee[:type], assignee[:id])
+
+      errors.add(:"#{level}_assignee_id", "does not exist in Superset")
+    end
   end
 
   # belongs_to :event_definition, optional: true skips presence entirely,

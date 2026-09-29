@@ -189,3 +189,26 @@ If a test fails:
 ---
 
 All scripts preserve data integrity and are safe to re-run in development.
+
+## Advanced incidents (Truck Failure · Extra Vehicle Request · Route Diversion)
+
+Data setup (idempotent, run in this order on a fresh environment):
+
+```bash
+bin/rails runner scripts/data/add_100_vehicles.rb            # TRK-101..200 -> 200 map vehicles
+bin/rails runner scripts/data/seed_waybills.rb               # waybills for in-transit trips
+bin/rails runner scripts/data/seed_advanced_incidents.rb     # keyed EventDefinitions, rules, assignees
+bin/rails runner scripts/data/seed_route_diversions.rb       # active diversions across India (+ re-plans positions)
+bin/rails runner scripts/data/regenerate_vehicle_positions.rb  # route-consistent positions + coherent ETAs
+bin/rails runner scripts/data/validate_operational_consistency.rb  # vehicles / hubs / diversions / notifications
+```
+
+Scenario tests (each exits non-zero on failure):
+
+| Script | Covers |
+|---|---|
+| `07_test_truck_failure.rb` | Truck Failure enrichment, in-app + Slack delivery, acknowledge → assign → escalate → resolve |
+| `08_test_extra_vehicle_request.rb` | Extra Vehicle Request with hub load / capacity |
+| `09_test_route_diversion.rb` | RouteDiversion impact, alert, Slack layout, map endpoints |
+| `10_test_hub_direction_filter.rb` | Hub inbound/outbound list == hub counts |
+| `11_test_notification_parity.rb` | In-app vs Slack card parity, lifecycle via API, SSE `incident_update`, Slack `chat.update`, drill-through links |

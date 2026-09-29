@@ -24,6 +24,13 @@ module Api
           recipient_id: @alert_rule.recipient_id,
           recipient_name: recipient_name,
           notification_channels: @alert_rule.notification_channels,
+          primary_assignee_type: @alert_rule.primary_assignee_type,
+          primary_assignee_id: @alert_rule.primary_assignee_id,
+          primary_assignee_name: principal_name(@alert_rule.primary_assignee_type, @alert_rule.primary_assignee_id),
+          secondary_assignee_type: @alert_rule.secondary_assignee_type,
+          secondary_assignee_id: @alert_rule.secondary_assignee_id,
+          secondary_assignee_name: principal_name(@alert_rule.secondary_assignee_type, @alert_rule.secondary_assignee_id),
+          escalation_after_minutes: @alert_rule.escalation_after_minutes,
           enabled: @alert_rule.enabled,
           created_at: @alert_rule.created_at,
           updated_at: @alert_rule.updated_at
@@ -31,6 +38,12 @@ module Api
       end
 
       private
+
+      def principal_name(type, id)
+        return nil if type.blank? || id.blank?
+
+        SupersetDirectory.resolve_principal(type, id)&.fetch(:name, nil)
+      end
 
       # nil whenever there's no recipient, Superset isn't configured, or
       # the recipient_id doesn't resolve — never raises just to render a

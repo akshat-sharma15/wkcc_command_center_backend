@@ -38,11 +38,13 @@ class NotificationDeliveryJob < ApplicationJob
     channel = ENV["SLACK_NOTIFICATION_CHANNEL"]
     return notification.mark_failed!("SLACK_NOTIFICATION_CHANNEL is not configured") if channel.blank?
 
-    result = SlackOauthClient.post_message(bot_token: integration.bot_token, channel: channel, text: slack_text(notification))
+    result = SlackOauthClient.post_message(bot_token: integration.bot_token, channel: channel, text: slack_text(notification), blocks: slack_blocks(notification))
     result = retry_after_joining(integration.bot_token, channel, notification) if result["error"] == "not_in_channel"
 
     if result["ok"]
       notification.mark_delivered!(external_reference: result["ts"])
+      # chat.update needs the channel ID Slack resolved the name to.
+      notification.update!(metadata: (notification.metadata || {}).merge("slack_channel" => result["channel"])) if result["channel"]
     else
       notification.mark_failed!(result["error"] || "slack_error")
     end
@@ -61,12 +63,18 @@ class NotificationDeliveryJob < ApplicationJob
     join_result = SlackOauthClient.join_channel(bot_token: bot_token, channel: channel)
     return { "ok" => false, "error" => "not_in_channel" } unless join_result["ok"]
 
-    SlackOauthClient.post_message(bot_token: bot_token, channel: channel, text: slack_text(notification))
+    SlackOauthClient.post_message(bot_token: bot_token, channel: channel, text: slack_text(notification), blocks: slack_blocks(notification))
   rescue SlackOauthClient::SlackApiError
     { "ok" => false, "error" => "not_in_channel" }
   end
 
   def slack_text(notification)
     "*#{notification.title}*\n#{notification.message}"
+  end
+
+  # Rich layout for advanced incidents only; nil keeps every other alert's
+  # Slack message exactly as before.
+  def slack_blocks(notification)
+    SlackIncidentMessageBuilder.new(notification).blocks
   end
 end

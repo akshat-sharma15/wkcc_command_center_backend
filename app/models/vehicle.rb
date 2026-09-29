@@ -4,6 +4,8 @@ class Vehicle < OperationsRecord
   belongs_to :hub
   belongs_to :driver, class_name: "WorkforceMember", optional: true
   has_many :trips, dependent: :restrict_with_error
+  has_many :waybills, dependent: :restrict_with_error
+  has_many :route_diversions, dependent: :restrict_with_error
 
   # Fleet Monitoring POC additions (additive - the existing `current_location`
   # string and `vendor` string columns above are untouched). Named

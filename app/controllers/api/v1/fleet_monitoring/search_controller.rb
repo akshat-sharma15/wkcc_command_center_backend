@@ -16,6 +16,16 @@ module Api
           render json: ::FleetMonitoring::VehiclePresenter.new(vehicle).as_json
         end
 
+        # GET /api/v1/fleet-monitoring/search/waybill?waybill_number=WB-062320
+        # (hyphen/case-insensitive exact match)
+        def waybill
+          params.require(:waybill_number)
+          normalized = params[:waybill_number].to_s.upcase.delete("^A-Z0-9")
+          waybill = Waybill.includes(:vehicle, :trip, :origin_hub, :destination_hub)
+                           .find_by!("upper(replace(waybill_number, '-', '')) = ?", normalized)
+          render json: ::FleetMonitoring::WaybillPresenter.new(waybill).as_json
+        end
+
         # GET /api/v1/fleet-monitoring/search/package?package_id=KWS4567
         def package
           params.require(:package_id)

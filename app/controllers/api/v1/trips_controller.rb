@@ -13,6 +13,11 @@ module Api
         render json: TripSerializer.new(@trip).as_json
       end
 
+      # GET /api/v1/trips/:id/eta - planned vs predicted ETA (EtaImpactService).
+      def eta
+        render json: EtaImpactService.new(Trip.find(params[:id])).as_json
+      end
+
       def create
         trip = Trip.new(trip_params)
         trip.save!

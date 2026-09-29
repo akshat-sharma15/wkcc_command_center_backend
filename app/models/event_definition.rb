@@ -41,6 +41,8 @@ class EventDefinition < OperationsRecord
   has_many :alert_rules, dependent: :nullify
 
   validates :name, presence: true, uniqueness: true
+  validates :key, uniqueness: true, allow_nil: true,
+                  format: { with: /\A[a-z0-9_]+(\.[a-z0-9_]+)+\z/, message: "must look like 'domain.event_name'" }
   validates :group, presence: true, inclusion: { in: GROUPS_AND_TYPES.keys }
   validates :event_type, presence: true
   validate :event_type_must_belong_to_group

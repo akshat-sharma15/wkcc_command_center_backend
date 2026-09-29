@@ -46,7 +46,7 @@ vehicles = Vehicle.where(allow_alerts: true).limit(2)
 hubs = Hub.where(allow_alerts: true).limit(2)
 
 puts "  Vehicles: #{vehicles.count}"
-vehicles.each { |v| puts "    - #{v.name} (id=#{v.id})" }
+vehicles.each { |v| puts "    - #{v.number} (id=#{v.id})" }
 puts "  Hubs: #{hubs.count}"
 hubs.each { |h| puts "    - #{h.name} (id=#{h.id})" }
 
@@ -60,7 +60,7 @@ if (event_def = EventDefinition.find_by(name: "Vehicle ETA Breach Risk"))
   vehicle = vehicles.first
   if vehicle
     puts "\n1. VEHICLE ETA BREACH RISK"
-    puts "   Entity: Vehicle ##{vehicle.id} (#{vehicle.name})"
+    puts "   Entity: Vehicle ##{vehicle.id} (#{vehicle.number})"
 
     begin
       EventPublisher.publish(
@@ -168,7 +168,7 @@ end
 puts "\n[SUMMARY]"
 puts "  - Alerts created: #{created_alerts.count}"
 
-all_event_alerts = Alert.where("group LIKE ?", "events:%", status: "open")
+all_event_alerts = Alert.where("alerts.\"group\" LIKE ?", "events:%").where(status: "open")
 puts "  - Total event alerts: #{all_event_alerts.count}"
 
 puts "\n" + "=" * 70

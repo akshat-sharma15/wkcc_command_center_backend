@@ -35,6 +35,29 @@ class SupersetDirectory
     user && serialize_user(user)
   end
 
+  # A user or role by logical reference ({ id:, name: }), or nil.
+  # Memoized for PRINCIPAL_CACHE_TTL: incident cards render three
+  # principals each, and a notification list renders many cards.
+  PRINCIPAL_CACHE_TTL = 60.seconds
+
+  def self.resolve_principal(type, id)
+    key = [ type.to_s, id.to_i ]
+    cached = principal_cache[key]
+    return cached[:value] if cached && cached[:at] > PRINCIPAL_CACHE_TTL.ago
+
+    value = case type.to_s
+    when "user" then find_user(id)
+    when "role" then find_role(id)
+    end
+    principal_cache[key] = { value: value, at: Time.current }
+    value
+  end
+
+  def self.principal_cache
+    @principal_cache ||= Concurrent::Map.new
+  end
+  private_class_method :principal_cache
+
   def self.users_for_role(role_id)
     return [] unless configured? && role_id.present?
 

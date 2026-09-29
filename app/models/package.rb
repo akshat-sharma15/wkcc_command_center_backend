@@ -4,6 +4,7 @@ class Package < OperationsRecord
   belongs_to :trip, optional: true
   belongs_to :location, polymorphic: true
   belongs_to :order, optional: true
+  belongs_to :waybill, optional: true
   has_many :package_status_transitions, dependent: :destroy
 
   enum :status, {

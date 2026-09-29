@@ -9,16 +9,16 @@ module Api
 
       before_action :set_notification, only: %i[show read]
 
-      # GET /api/v1/notifications
+      # GET /api/v1/notifications[?channel=in_app]
       def index
-        pagy, notifications = pagy(Notification.for_recipient(current_superset_user_id).order(created_at: :desc))
+        pagy, notifications = pagy(channel_scope(Notification.includes(alert: :alert_rule).for_recipient(current_superset_user_id)).order(created_at: :desc))
         response.headers.merge!(pagy_headers_merge(pagy))
         render json: notifications.map { |n| NotificationSerializer.new(n).as_json }
       end
 
       # GET /api/v1/notifications/unread
       def unread
-        notifications = Notification.for_recipient(current_superset_user_id).unread.order(created_at: :desc)
+        notifications = channel_scope(Notification.includes(alert: :alert_rule).for_recipient(current_superset_user_id)).unread.order(created_at: :desc)
         render json: notifications.map { |n| NotificationSerializer.new(n).as_json }
       end
 
@@ -47,6 +47,12 @@ module Api
       end
 
       private
+
+      # Optional ?channel= filter (the bell asks for in_app only; Slack
+      # rows are that channel's delivery records for the same alert).
+      def channel_scope(scope)
+        Notification::CHANNELS.include?(params[:channel]) ? scope.where(channel: params[:channel]) : scope
+      end
 
       # Scoped to the current user in the lookup itself (not filtered
       # after the fact) — an id belonging to another user's notification
