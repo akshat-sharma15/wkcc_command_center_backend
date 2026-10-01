@@ -73,7 +73,8 @@ module FleetMonitoring
               .transform_values do |list|
                 top = list.min_by { |alert| [ SEVERITY_RANK.fetch(alert.severity, 9), -alert.triggered_at.to_i ] }
                 { id: top.id, title: top.metadata&.dig("incident", "title") || top.alert_rule.name,
-                  severity: top.severity, status: top.status, open_count: list.size }
+                  severity: top.severity, status: top.status, open_count: list.size,
+                  url: IncidentLinks.incident(top.id) }
               end
       end
     end

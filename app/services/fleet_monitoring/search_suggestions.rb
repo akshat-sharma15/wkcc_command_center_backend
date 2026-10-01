@@ -12,9 +12,15 @@
 # /search), every hub (as /hubs), every package (as /search/package).
 module FleetMonitoring
   class SearchSuggestions
-    MIN_QUERY_LENGTH = 3
+    # Waybills match on an indexed prefix (index_waybills_on_normalized_number)
+    # so they're cheap from the first character - see #waybills. Vehicles/
+    # hubs/packages match by substring (ILIKE '%q%', no leading-anchored
+    # index can serve that) so they keep a 2-char floor to avoid a 1-char
+    # query seq-scanning packages (~15k rows) on every keystroke.
+    MIN_QUERY_LENGTH = 1
+    SUBSTRING_MIN_QUERY_LENGTH = 2
     DEFAULT_LIMIT = 5
-    MAX_LIMIT = 10
+    MAX_LIMIT = 20
 
     class QueryTooShort < ArgumentError; end
 
@@ -47,6 +53,8 @@ module FleetMonitoring
     end
 
     def vehicles
+      return [] if query.length < SUBSTRING_MIN_QUERY_LENGTH
+
       records = Vehicle.fleet_monitoring_poc
                        .includes(:current_geo_location, :vendor_account)
                        .where("vehicles.number ILIKE ?", "%#{pattern}%")
@@ -70,6 +78,8 @@ module FleetMonitoring
     end
 
     def hubs
+      return [] if query.length < SUBSTRING_MIN_QUERY_LENGTH
+
       Hub.includes(:geo_location)
          .where("hubs.code ILIKE :q OR hubs.name ILIKE :q", q: "%#{pattern}%")
          .order(prefix_rank(Hub, "hubs.code", "hubs.name"), "hubs.code")
@@ -87,6 +97,8 @@ module FleetMonitoring
     end
 
     def packages
+      return [] if query.length < SUBSTRING_MIN_QUERY_LENGTH
+
       Package.includes(:location, trip: :vehicle)
              .where("packages.identifier ILIKE ?", "%#{pattern}%")
              .order(prefix_rank(Package, "packages.identifier"), "packages.identifier")
@@ -103,24 +115,45 @@ module FleetMonitoring
     end
 
     # Waybill numbers match ignoring case and hyphens ("wb0623" ->
-    # WB-062320), prefix first; the normalized-prefix LIKE uses
-    # index_waybills_on_normalized_number.
+    # WB-062320), by PREFIX only (not substring) so a single digit ("5")
+    # is cheap: the normalized-prefix LIKE uses
+    # index_waybills_on_normalized_number (a btree text_pattern_ops index),
+    # which serves a `LIKE 'prefix%'` in O(log n), not a table scan - this
+    # is why waybills alone can start suggesting from 1 character while
+    # vehicles/hubs/packages above (substring ILIKE, no such index) wait
+    # for SUBSTRING_MIN_QUERY_LENGTH.
     def waybills
       normalized = ActiveRecord::Base.sanitize_sql_like(query.upcase.delete("^A-Z0-9"))
-      return [] if normalized.length < MIN_QUERY_LENGTH
+      return [] if normalized.blank?
 
-      Waybill.includes(:vehicle, :origin_hub, :destination_hub)
+      Waybill.includes(:vehicle, :origin_hub, :destination_hub, trip: :origin_hub)
              .where("upper(replace(waybills.waybill_number, '-', '')) LIKE ?", "#{normalized}%")
              .order(:waybill_number).limit(limit)
-             .map do |waybill|
-               {
-                 kind: "waybill",
-                 waybill_number: waybill.waybill_number,
-                 label: waybill.waybill_number,
-                 detail: "#{waybill.origin_hub.name} → #{waybill.destination_hub.name} · #{waybill.vehicle.number}",
-                 status: waybill.status.upcase.tr("_", " ")
-               }
-             end
+             .map { |waybill| waybill_suggestion(waybill) }
+    end
+
+    # A waybill not currently moving (no trip, or trip not in_transit) is
+    # physically sitting at a hub - its origin hub while awaiting dispatch,
+    # or its own vehicle's hub as a fallback. `current_hub` is only
+    # populated in that case; an in-transit waybill has no single hub, so
+    # callers show its route instead (see WaybillPresenter for the fuller
+    # in-transit picture - this stays deliberately light for a keystroke
+    # endpoint).
+    def waybill_suggestion(waybill)
+      moving = waybill.trip&.status_in_transit?
+      current_hub = moving ? nil : (waybill.trip&.origin_hub || waybill.vehicle.hub)
+      status = moving ? waybill.status.upcase.tr("_", " ") : "AT HUB"
+      {
+        kind: "waybill",
+        waybill_number: waybill.waybill_number,
+        label: waybill.waybill_number,
+        status: status,
+        vehicle_number: waybill.vehicle.number,
+        current_hub: current_hub && { code: current_hub.code, name: current_hub.name },
+        origin: { code: waybill.origin_hub.code, name: waybill.origin_hub.name },
+        destination: { code: waybill.destination_hub.code, name: waybill.destination_hub.name },
+        detail: current_hub ? "#{current_hub.name} · #{waybill.vehicle.number}" : "#{waybill.origin_hub.name} → #{waybill.destination_hub.name} · #{waybill.vehicle.number}"
+      }
     end
 
     # Same precedence as PackagePresenter#current_location_label (live

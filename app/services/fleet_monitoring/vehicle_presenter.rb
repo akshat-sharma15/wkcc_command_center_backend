@@ -67,6 +67,7 @@ module FleetMonitoring
         planned_eta: eta_impact&.planned_eta&.iso8601,
         predicted_eta: eta_impact&.predicted_eta&.iso8601,
         eta_variance_minutes: eta_impact&.eta_variance_minutes,
+        eta_variance_label: DurationFormat.minutes(eta_impact&.eta_variance_minutes, signed: true),
         waybill_count: waybill_count
       )
     end
@@ -140,7 +141,7 @@ module FleetMonitoring
       remaining_minutes = ((@current_trip.expected_arrival_at - Time.current) / 60).round
       return "Arriving" if remaining_minutes <= 0
 
-      "#{remaining_minutes / 60}h #{remaining_minutes % 60}m"
+      DurationFormat.minutes(remaining_minutes)
     end
 
     def updated_label
@@ -148,7 +149,7 @@ module FleetMonitoring
       minutes = ((Time.current - timestamp) / 60).round
       return "just now" if minutes < 1
 
-      "#{minutes} min ago"
+      "#{DurationFormat.minutes(minutes)} ago"
     end
   end
 end

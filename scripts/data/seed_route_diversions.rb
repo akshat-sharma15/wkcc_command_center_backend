@@ -53,7 +53,7 @@ CORRIDORS.each do |origin_code, destination_code, city, traffic_factor, reason|
     next
   end
 
-  trip = corridor_trips.joins(:vehicle).where("vehicles.number LIKE 'TRK-%'").where(id: Waybill.open.select(:trip_id)).order("vehicles.number").first ||
+  trip = corridor_trips.joins(:vehicle).merge(Vehicle.fleet_monitoring_poc).where(id: Waybill.open.select(:trip_id)).order("vehicles.number").first ||
          corridor_trips.joins(:vehicle).order("vehicles.number").first
   next puts("  ⊘ #{origin.name} -> #{destination.name}: no in-transit vehicle on this corridor") unless trip
 

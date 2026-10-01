@@ -13,12 +13,16 @@ module Api
         render json: waybills.map { |w| WaybillSerializer.new(w).as_json }
       end
 
+      # Package-centric on purpose (identifier/status/promised_delivery_at
+      # are Package's own columns, not Order's) - we don't surface Orders
+      # in the waybill UI. `total_orders`/`customer_count` stay on
+      # WaybillSerializer's own top-level shape (the document's own
+      # consignee-count summary, not a per-package Order listing).
       def show
         waybill = Waybill.find(params[:id])
         render json: WaybillSerializer.new(waybill).as_json.merge(
-          packages: waybill.packages.includes(:order).order(:identifier).map { |package|
-            { identifier: package.identifier, status: package.status, order_number: package.order&.order_number,
-              customer: package.order&.customer_reference, promised_delivery_at: package.order&.promised_delivery_at }
+          packages: waybill.packages.order(:identifier).map { |package|
+            { identifier: package.identifier, status: package.status, promised_delivery_at: package.promised_delivery_at }
           }
         )
       end

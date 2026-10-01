@@ -32,7 +32,9 @@ class IncidentNotificationPresenter
       severity: @alert.severity,
       status: @alert.status,
       triggered_at: @alert.triggered_at&.iso8601,
-      summary: @incident["summary"],
+      # Stored summaries written before hour formatting still read
+      # "+149 min"; normalized here so every channel shows "+2.5 hours".
+      summary: DurationFormat.normalize_text(@incident["summary"]),
       entity: { type: @alert.metadata&.dig("entity_type"), id: @alert.record_id },
       vehicle: @incident.dig("vehicle", "number"),
       driver: driver_label,
@@ -44,6 +46,7 @@ class IncidentNotificationPresenter
       planned_eta: @incident["planned_eta"],
       predicted_eta: @incident["predicted_eta"],
       delay_minutes: @incident["delay_minutes"],
+      delay_label: DurationFormat.minutes(@incident["delay_minutes"], signed: true),
       additional_distance_km: @incident["additional_distance_km"],
       waybill_count: @incident["waybill_count"],
       order_count: @incident["order_count"],
@@ -71,7 +74,7 @@ class IncidentNotificationPresenter
       [ "Destination", @incident.dig("next_hub", "name") ],
       [ "Extra distance", @incident["additional_distance_km"] && "+#{@incident['additional_distance_km']} km" ],
       [ "ETA", eta_label ],
-      [ "ETA delay", @incident["delay_minutes"] && "+#{@incident['delay_minutes']} min" ],
+      [ "ETA delay", DurationFormat.minutes(@incident["delay_minutes"], signed: true) ],
       [ "Waybills", @incident["waybill_count"] ],
       [ "Orders", @incident["order_count"] ],
       [ "Packages", @incident["package_count"] ],

@@ -94,6 +94,7 @@ Rails.application.routes.draw do
         get "hubs/:code/vehicles" => "hub_vehicles#index"
         get "hubs/:code/vehicle-summary" => "hub_vehicles#summary"
         get "vehicles/:pnr" => "vehicles#show"
+        get "waybills" => "waybills#index"
         get "incidents/:id" => "incidents#show"
         get "route-diversions" => "route_diversions#index"
         get "route-diversions/:id" => "route_diversions#show"

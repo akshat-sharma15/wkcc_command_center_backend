@@ -18,7 +18,6 @@ module Api
           customer: @waybill.customer_reference,
           customer_count: @waybill.customer_count,
           total_packages: @waybill.total_packages,
-          total_orders: @waybill.total_orders,
           total_weight_kg: @waybill.total_weight&.to_f,
           declared_value: @waybill.declared_value&.to_f,
           planned_departure_at: @waybill.planned_departure_at,

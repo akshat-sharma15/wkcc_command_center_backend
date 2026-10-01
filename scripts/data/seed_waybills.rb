@@ -34,7 +34,10 @@ trips.each do |trip|
   existing = trip.waybills.count
 
   groups.sort_by(&:first).each_with_index do |(customer, group), index|
-    number = format("WB-%06d", trip.id * 10 + existing + index)
+    # 12-digit numeric, no letters - see scripts/data/realistic_waybill_data.rb
+    # for the rationale and for converting any pre-existing "WB-######" rows.
+    number = format("%012d", rng.rand(100_000_000_000..999_999_999_999))
+    number = format("%012d", rng.rand(100_000_000_000..999_999_999_999)) while Waybill.exists?(waybill_number: number)
     rate = rng.rand(VALUE_PER_KG_RANGE)
     buffer = ARRIVAL_BUFFERS_MINUTES[rng.rand(ARRIVAL_BUFFERS_MINUTES.size)]
 
@@ -61,9 +64,9 @@ end
 
 puts "Waybills created: #{created}; packages attached: #{attached}"
 puts "Total waybills: #{Waybill.count} (open: #{Waybill.open.count}) across #{Waybill.distinct.count(:trip_id)} trips"
-sample = Vehicle.find_by(number: "TRK-102")
+sample = Waybill.joins(:vehicle).order("RANDOM()").first&.vehicle
 if sample
-  puts "\nTRK-102 waybills:"
+  puts "\n#{sample.number} waybills:"
   sample.waybills.order(:waybill_number).each do |w|
     puts "  #{w.waybill_number}  #{w.origin_hub.name} -> #{w.destination_hub.name}  customer=#{w.customer_reference || "#{w.customer_count} customers"}  " \
          "packages=#{w.total_packages} orders=#{w.total_orders} weight=#{w.total_weight}kg value=₹#{w.declared_value.to_i} eta=#{w.expected_arrival_at&.strftime('%H:%M')} #{w.status}"

@@ -25,7 +25,6 @@ module FleetMonitoring
         customer: @waybill.customer_reference,
         customer_count: @waybill.customer_count,
         package_count: @waybill.total_packages,
-        order_count: @waybill.total_orders,
         weight_kg: @waybill.total_weight&.to_f,
         expected_arrival_at: @waybill.expected_arrival_at&.iso8601,
         predicted_eta: eta&.predicted_eta&.iso8601,

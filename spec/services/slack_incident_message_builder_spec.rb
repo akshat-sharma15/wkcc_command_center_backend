@@ -17,7 +17,7 @@ RSpec.describe SlackIncidentMessageBuilder do
     text = blocks.to_json
 
     expect(blocks.first[:text][:text]).to eq("🚨 CRITICAL — ROUTE DIVERSION")
-    expect(text).to include("+45 km", "+60 min", "₹2,35,000", "Indore → Dhar → Ratlam", "Status: *OPEN*")
+    expect(text).to include("+45 km", "+1 hour", "₹2,35,000", "Indore → Dhar → Ratlam", "Status: *OPEN*")
     labels = blocks.last[:elements].map { |e| e[:text][:text] }
     expect(labels).to eq([ "View Incident", "View Truck", "View Route", "View Hub", "Acknowledge", "Reassign", "Resolve" ])
     expect(blocks.last[:elements].first[:url]).to end_with("/incident/#{alert.id}")

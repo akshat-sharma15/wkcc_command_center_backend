@@ -29,6 +29,7 @@ module Api
       # POST /api/v1/alerts/:id/acknowledge
       def acknowledge
         @alert.acknowledge!(by: current_superset_user_id)
+        notify_lifecycle("acknowledged")
         render_alert
       end
 
@@ -38,7 +39,9 @@ module Api
         params.require(:assignee_type)
         params.require(:assignee_id)
         validate_assignee!
+        previous_assignee = @alert.assignee
         @alert.assign!(assignee_type: params[:assignee_type], assignee_id: params[:assignee_id], by: current_superset_user_id)
+        notify_lifecycle(previous_assignee ? "reassigned" : "assigned", previous_assignee: previous_assignee)
         render_alert
       end
 
@@ -50,7 +53,9 @@ module Api
 
       # POST /api/v1/alerts/:id/escalate
       def escalate
+        previous_assignee = @alert.assignee
         @alert.escalate!(by: current_superset_user_id)
+        notify_lifecycle("escalated", previous_assignee: previous_assignee)
         render_alert
       end
 
@@ -58,6 +63,7 @@ module Api
       def resolve
         @alert.resolve!(by: current_superset_user_id, note: params[:resolution_note])
         RouteDiversion.active.where(alert_id: @alert.id).find_each(&:resolve!) if params[:resolve_diversion].to_s == "true"
+        notify_lifecycle("resolved")
         render_alert
       end
 
@@ -79,6 +85,18 @@ module Api
         SlackIncidentSyncJob.perform_async(@alert.id)
       rescue Redis::BaseError => e
         Rails.logger.warn("[AlertsController] incident update not broadcast: #{e.class}")
+      end
+
+      # Notifies the people the action affects who would otherwise hear
+      # nothing - above all a newly assigned user, who has no Notification
+      # for this alert yet and so is reached by neither the SSE incident
+      # update nor the Slack message re-render. Never fails the action
+      # itself: the lifecycle transition is already committed.
+      def notify_lifecycle(action, previous_assignee: nil)
+        IncidentLifecycleNotifier.notify(@alert, action: action, actor_id: current_superset_user_id,
+                                                 previous_assignee: previous_assignee)
+      rescue StandardError => e
+        Rails.logger.warn("[AlertsController] lifecycle notification failed: #{e.class}: #{e.message}")
       end
 
       def validate_assignee!

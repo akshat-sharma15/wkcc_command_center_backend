@@ -1,6 +1,6 @@
 # Scenario 1 - Truck Failure (vehicle.failure).
 #   bin/rails runner scripts/alerts/07_test_truck_failure.rb
-# Picks an in-transit TRK vehicle carrying waybills (not TRK-102, which is
+# Picks an in-transit POC vehicle carrying waybills (not TRK-102, which is
 # reserved for the diversion scenario), publishes the incident through
 # POST /api/v1/incidents/vehicle.failure, checks the enrichment, in-app +
 # Slack delivery, primary/secondary assignment, then exercises
@@ -16,9 +16,9 @@ rule = AlertRule.active.find_by(name: "Incident: Truck Failure")
 abort("Run scripts/data/seed_advanced_incidents.rb first") unless rule
 
 open_vehicle_ids = Alert.where(alert_rule: rule, status: "open").pluck(:record_id)
-vehicle = Vehicle.where("number LIKE 'TRK-%'").where.not(number: "TRK-102").where.not(id: open_vehicle_ids)
+vehicle = Vehicle.fleet_monitoring_poc.where.not(number: "TRK-102").where.not(id: open_vehicle_ids)
                  .joins(trips: :waybills).merge(Trip.status_in_transit).distinct.order(:number).first
-abort("No in-transit TRK vehicle with waybills - run scripts/data/add_100_vehicles.rb and seed_waybills.rb") unless vehicle
+abort("No in-transit POC vehicle with waybills - run scripts/data/add_100_vehicles.rb and seed_waybills.rb") unless vehicle
 
 section "Trigger"
 puts "  Vehicle #{vehicle.number} (id=#{vehicle.id})"

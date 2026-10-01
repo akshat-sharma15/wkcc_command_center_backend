@@ -42,8 +42,12 @@ class Alert < OperationsRecord
 
   # Open or escalated alerts can be acknowledged (an escalation is
   # acknowledged by the secondary contact).
+  # Acknowledgement means "someone has this" and can happen at any point
+  # before resolution: while the alert is still open, after it escalated
+  # to the secondary contact, or - the common case - by the person it was
+  # just assigned to, which leaves it in_progress.
   def acknowledge!(by:)
-    raise TransitionError, "only an open or escalated alert can be acknowledged" unless status_open? || status_escalated?
+    ensure_not_resolved!("acknowledged")
 
     update_with_history!("acknowledged", by, {}, status: "acknowledged", acknowledged_at: Time.current, acknowledged_by: by)
   end

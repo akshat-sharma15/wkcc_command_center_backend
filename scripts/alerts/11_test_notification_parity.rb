@@ -18,10 +18,10 @@ puts "=" * 70
 rule = AlertRule.active.find_by(name: "Incident: Truck Failure")
 abort("Run scripts/data/seed_advanced_incidents.rb first") unless rule
 busy = Alert.where(alert_rule: rule).where(status: Alert::ACTIVE_STATUSES).pluck(:record_id)
-vehicle = Vehicle.where("number LIKE 'TRK-%'").where.not(id: busy).where.not(id: RouteDiversion.active.select(:vehicle_id))
+vehicle = Vehicle.fleet_monitoring_poc.where.not(id: busy).where.not(id: RouteDiversion.active.select(:vehicle_id))
                  .where(id: FleetMonitoring::HubVehicleFlow.current_trips.where(id: Waybill.open.select(:trip_id)).select(:vehicle_id))
                  .order(:number).first
-abort("No free in-transit TRK vehicle with waybills") unless vehicle
+abort("No free in-transit POC vehicle with waybills") unless vehicle
 
 # Listen on the user's SSE channel (the same Redis channel the stream uses).
 events = Queue.new

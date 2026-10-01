@@ -150,7 +150,7 @@ class AlertEnrichmentService
         hub: IncidentLinks.hub(trip.destination_hub.code, direction: "inbound")
       },
       summary: "Truck #{vehicle.number} diverted: #{route_label(diversion.diverted_path)} " \
-               "(+#{impact['additional_distance_km']} km#{impact['estimated_delay_minutes'] ? ", +#{impact['estimated_delay_minutes']} min" : ''})."
+               "(+#{impact['additional_distance_km']} km#{impact['estimated_delay_minutes'] ? ", #{DurationFormat.minutes(impact['estimated_delay_minutes'], signed: true)}" : ''})."
     )
   end
 

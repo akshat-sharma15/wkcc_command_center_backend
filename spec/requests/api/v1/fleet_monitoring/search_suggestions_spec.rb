@@ -11,25 +11,33 @@ RSpec.describe "Api::V1::FleetMonitoring::SearchSuggestions", type: :request do
   end
 
   describe "minimum query length" do
-    it "rejects a query shorter than 3 characters" do
-      suggest("VH")
-      expect(response).to have_http_status(:bad_request)
-      expect(body["error"]).to eq("q must be at least 3 characters")
-    end
-
-    it "ignores surrounding whitespace when counting characters" do
-      suggest("  ab  ")
-      expect(response).to have_http_status(:bad_request)
-    end
-
+    # 1 character overall (waybills match by indexed prefix, cheap from
+    # the first digit - see FleetMonitoring::SearchSuggestions), but
+    # vehicles/hubs/packages (substring match, no such index) hold their
+    # own 2-character floor - see "substring categories" below.
+    # A blank/whitespace-only q never reaches SearchSuggestions#initialize's
+    # own length check at all - the controller's params.require(:q) treats
+    # it as missing first (see the "missing query" case below), same as
+    # before this change; SearchSuggestions' own MIN_QUERY_LENGTH now only
+    # ever sees a non-blank query through this endpoint.
     it "rejects a missing query" do
       get path, headers: authenticated_headers
       expect(response).to have_http_status(:bad_request)
     end
 
-    it "accepts exactly 3 characters" do
-      suggest("xyz")
+    it "accepts a single character" do
+      suggest("x")
       expect(response).to have_http_status(:ok)
+    end
+  end
+
+  describe "substring categories (vehicles/hubs/packages) stay at a 2-character floor" do
+    it "returns no vehicle/hub/package suggestions for a 1-character query" do
+      suggest("V")
+      expect(response).to have_http_status(:ok)
+      expect(suggestions["vehicles"]).to eq([])
+      expect(suggestions["hubs"]).to eq([])
+      expect(suggestions["packages"]).to eq([])
     end
   end
 
@@ -144,11 +152,11 @@ RSpec.describe "Api::V1::FleetMonitoring::SearchSuggestions", type: :request do
       expect(suggestions["vehicles"].size).to eq(2)
     end
 
-    it "caps the requested limit at 10" do
+    it "caps the requested limit at 20" do
       suggest("LIM", limit: 500)
 
-      expect(body["limit"]).to eq(10)
-      expect(suggestions["packages"].size).to eq(10)
+      expect(body["limit"]).to eq(20)
+      expect(suggestions["packages"].size).to eq(12) # fewer than 20 exist
     end
   end
 
