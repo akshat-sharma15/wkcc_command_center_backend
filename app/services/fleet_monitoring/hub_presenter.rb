@@ -14,8 +14,11 @@ module FleetMonitoring
       "closed" => "MAINTENANCE"
     }.freeze
 
-    def initialize(hub)
+    # `flow_counts` ({ inbound:, outbound: }) comes preloaded from
+    # HubVehicleFlow.counts_by_hub on list endpoints.
+    def initialize(hub, flow_counts: nil)
       @hub = hub
+      @flow_counts = flow_counts
     end
 
     def as_json(*)
@@ -42,12 +45,19 @@ module FleetMonitoring
 
     private
 
+    # Live map vehicles moving into/out of the hub - the same query the
+    # map's inbound/outbound filter draws (HubVehicleFlow), so the hover
+    # count always equals the vehicles shown.
     def inbound_count
-      @hub.inbound_trips.where(status: %w[in_transit completed]).count
+      flow_counts[:inbound]
     end
 
     def outbound_count
-      @hub.outbound_trips.where(status: %w[in_transit completed]).count
+      flow_counts[:outbound]
+    end
+
+    def flow_counts
+      @flow_counts ||= HubVehicleFlow.counts_by_hub.fetch(@hub.id, { inbound: 0, outbound: 0 })
     end
 
     def hub_packages

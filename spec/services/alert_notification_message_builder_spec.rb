@@ -49,13 +49,23 @@ RSpec.describe AlertNotificationMessageBuilder do
     )
   end
 
-  it "works generically for a non-vehicle group (Hub, using its `name` attribute)" do
+  it "works generically for a non-vehicle group (Hub, using its `name` attribute), without duplicating 'Hub' when the name already contains it" do
     hub = create(:hub, name: "Indore Hub", operational_status: "degraded", allow_alerts: true,
       alertable_fields: %w[operational_status])
     rule = create(:alert_rule, group: "hubs", field: "operational_status", ensure_target_alertable: false)
     alert = create(:alert, alert_rule: rule, group: "hubs", record_id: hub.id, field: "operational_status",
       actual_value: "degraded")
 
-    expect(described_class.new(alert).message).to eq("Hub Indore Hub has operational status degraded.")
+    expect(described_class.new(alert).message).to eq("Indore Hub has operational status degraded.")
+  end
+
+  it "prefixes the model name when the record's own name doesn't already include it" do
+    hub = create(:hub, name: "Downtown Facility", operational_status: "degraded", allow_alerts: true,
+      alertable_fields: %w[operational_status])
+    rule = create(:alert_rule, group: "hubs", field: "operational_status", ensure_target_alertable: false)
+    alert = create(:alert, alert_rule: rule, group: "hubs", record_id: hub.id, field: "operational_status",
+      actual_value: "degraded")
+
+    expect(described_class.new(alert).message).to eq("Hub Downtown Facility has operational status degraded.")
   end
 end

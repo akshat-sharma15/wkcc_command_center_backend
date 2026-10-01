@@ -10,14 +10,16 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_29_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "alert_rules", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id"
+    t.datetime "deleted_at"
     t.boolean "enabled", default: true, null: false
+    t.integer "escalation_after_minutes"
     t.bigint "event_definition_id"
     t.string "field"
     t.string "group"
@@ -25,12 +27,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.string "notification_channels", default: [], null: false, array: true
     t.boolean "notify", default: false, null: false
     t.string "operator"
+    t.bigint "primary_assignee_id"
+    t.string "primary_assignee_type"
     t.bigint "recipient_id"
     t.string "recipient_type"
+    t.bigint "secondary_assignee_id"
+    t.string "secondary_assignee_type"
     t.string "severity", null: false
     t.string "trigger_type", default: "condition", null: false
     t.datetime "updated_at", null: false
     t.jsonb "value"
+    t.index ["deleted_at"], name: "index_alert_rules_on_deleted_at"
     t.index ["enabled"], name: "index_alert_rules_on_enabled"
     t.index ["event_definition_id"], name: "index_alert_rules_on_event_definition_id"
     t.index ["group"], name: "index_alert_rules_on_group"
@@ -38,21 +45,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
   end
 
   create_table "alerts", force: :cascade do |t|
+    t.datetime "acknowledged_at"
+    t.bigint "acknowledged_by"
     t.string "actual_value"
     t.bigint "alert_rule_id", null: false
+    t.datetime "assigned_at"
+    t.bigint "assignee_id"
+    t.string "assignee_type"
+    t.string "assignment_level"
     t.datetime "created_at", null: false
+    t.datetime "escalated_at"
+    t.bigint "escalated_by"
+    t.integer "escalation_level", default: 0, null: false
     t.string "expected_value"
     t.string "field", null: false
     t.string "group", null: false
     t.jsonb "metadata"
     t.bigint "record_id", null: false
+    t.text "resolution_note"
     t.datetime "resolved_at"
+    t.bigint "resolved_by"
     t.string "severity", null: false
     t.string "status", default: "open", null: false
     t.datetime "triggered_at", null: false
     t.datetime "updated_at", null: false
     t.index ["alert_rule_id", "group", "record_id"], name: "index_alerts_on_open_rule_group_record", unique: true, where: "((status)::text = 'open'::text)"
     t.index ["alert_rule_id"], name: "index_alerts_on_alert_rule_id"
+    t.index ["assignee_type", "assignee_id"], name: "index_alerts_on_assignee_type_and_assignee_id"
     t.index ["group", "record_id"], name: "index_alerts_on_group_and_record_id"
     t.index ["group"], name: "index_alerts_on_group"
     t.index ["status"], name: "index_alerts_on_status"
@@ -62,9 +81,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.datetime "created_at", null: false
     t.string "event_type", null: false
     t.string "group", null: false
+    t.string "key"
     t.string "name", null: false
     t.datetime "updated_at", null: false
     t.index ["group", "event_type"], name: "index_event_definitions_on_group_and_event_type"
+    t.index ["key"], name: "index_event_definitions_on_key", unique: true, where: "(key IS NOT NULL)"
     t.index ["name"], name: "index_event_definitions_on_name", unique: true
   end
 
@@ -95,6 +116,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.integer "capacity"
     t.string "code", null: false
     t.datetime "created_at", null: false
+    t.decimal "load_capacity_kg", precision: 12, scale: 2
     t.string "location"
     t.bigint "location_id"
     t.string "name", null: false
@@ -191,6 +213,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.string "status", default: "pending", null: false
     t.bigint "trip_id"
     t.datetime "updated_at", null: false
+    t.bigint "waybill_id"
     t.index ["delivered_at"], name: "index_packages_on_delivered_at"
     t.index ["identifier"], name: "index_packages_on_identifier", unique: true
     t.index ["location_type", "location_id"], name: "index_packages_on_location"
@@ -198,6 +221,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.index ["promised_delivery_at"], name: "index_packages_on_promised_delivery_at"
     t.index ["status"], name: "index_packages_on_status"
     t.index ["trip_id"], name: "index_packages_on_trip_id"
+    t.index ["waybill_id"], name: "index_packages_on_waybill_id"
   end
 
   create_table "payment_dues", force: :cascade do |t|
@@ -211,6 +235,38 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.string "vendor", null: false
     t.index ["due_date"], name: "index_payment_dues_on_due_date"
     t.index ["payment_status"], name: "index_payment_dues_on_payment_status"
+  end
+
+  create_table "route_diversions", force: :cascade do |t|
+    t.decimal "additional_distance_km", precision: 9, scale: 2
+    t.integer "affected_orders"
+    t.integer "affected_packages"
+    t.integer "affected_waybills"
+    t.bigint "alert_id"
+    t.datetime "created_at", null: false
+    t.integer "delay_minutes"
+    t.datetime "diverted_at", null: false
+    t.decimal "diverted_distance_km", precision: 9, scale: 2
+    t.jsonb "diverted_path", default: [], null: false
+    t.decimal "fuel_impact_litres", precision: 9, scale: 2
+    t.jsonb "impact_snapshot", default: {}, null: false
+    t.decimal "original_distance_km", precision: 9, scale: 2
+    t.datetime "original_eta"
+    t.jsonb "original_path", default: [], null: false
+    t.text "reason", null: false
+    t.datetime "resolved_at"
+    t.decimal "revenue_risk", precision: 14, scale: 2
+    t.datetime "revised_eta"
+    t.string "status", default: "active", null: false
+    t.decimal "traffic_factor", precision: 4, scale: 2, default: "1.0", null: false
+    t.bigint "trip_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "vehicle_id", null: false
+    t.index ["alert_id"], name: "index_route_diversions_on_alert_id"
+    t.index ["status"], name: "index_route_diversions_on_status"
+    t.index ["trip_id"], name: "index_route_diversions_on_trip_id"
+    t.index ["vehicle_id", "status"], name: "index_route_diversions_on_vehicle_id_and_status"
+    t.index ["vehicle_id"], name: "index_route_diversions_on_vehicle_id"
   end
 
   create_table "trips", force: :cascade do |t|
@@ -297,6 +353,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
     t.index ["status"], name: "index_warehouses_on_status"
   end
 
+  create_table "waybills", force: :cascade do |t|
+    t.datetime "actual_arrival_at"
+    t.datetime "created_at", null: false
+    t.integer "customer_count", default: 0, null: false
+    t.decimal "declared_value", precision: 14, scale: 2
+    t.bigint "destination_hub_id", null: false
+    t.datetime "expected_arrival_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.bigint "origin_hub_id", null: false
+    t.datetime "planned_departure_at"
+    t.string "status", default: "issued", null: false
+    t.integer "total_orders", default: 0, null: false
+    t.integer "total_packages", default: 0, null: false
+    t.decimal "total_weight", precision: 12, scale: 2
+    t.bigint "trip_id"
+    t.datetime "updated_at", null: false
+    t.bigint "vehicle_id", null: false
+    t.string "waybill_number", null: false
+    t.index "upper(replace((waybill_number)::text, '-'::text, ''::text)) text_pattern_ops", name: "index_waybills_on_normalized_number"
+    t.index ["destination_hub_id"], name: "index_waybills_on_destination_hub_id"
+    t.index ["origin_hub_id"], name: "index_waybills_on_origin_hub_id"
+    t.index ["status"], name: "index_waybills_on_status"
+    t.index ["trip_id"], name: "index_waybills_on_trip_id"
+    t.index ["vehicle_id"], name: "index_waybills_on_vehicle_id"
+    t.index ["waybill_number"], name: "index_waybills_on_waybill_number", unique: true
+  end
+
   create_table "workforce_members", force: :cascade do |t|
     t.string "alertable_fields", default: [], null: false, array: true
     t.boolean "allow_alerts", default: false, null: false
@@ -328,6 +411,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
   add_foreign_key "package_status_transitions", "packages"
   add_foreign_key "packages", "orders"
   add_foreign_key "packages", "trips"
+  add_foreign_key "packages", "waybills"
+  add_foreign_key "route_diversions", "alerts"
+  add_foreign_key "route_diversions", "trips"
+  add_foreign_key "route_diversions", "vehicles"
   add_foreign_key "trips", "hubs", column: "destination_hub_id"
   add_foreign_key "trips", "hubs", column: "origin_hub_id"
   add_foreign_key "trips", "vehicles"
@@ -337,5 +424,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_130000) do
   add_foreign_key "vehicles", "locations", column: "current_location_id"
   add_foreign_key "vehicles", "vendors"
   add_foreign_key "vehicles", "workforce_members", column: "driver_id"
+  add_foreign_key "waybills", "hubs", column: "destination_hub_id"
+  add_foreign_key "waybills", "hubs", column: "origin_hub_id"
+  add_foreign_key "waybills", "trips"
+  add_foreign_key "waybills", "vehicles"
   add_foreign_key "workforce_members", "hubs"
 end

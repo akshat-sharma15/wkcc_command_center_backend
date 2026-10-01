@@ -14,6 +14,9 @@ module Api
           title: @notification.title,
           message: @notification.message,
           metadata: @notification.metadata,
+          # Live incident card (current status/assignee) - identical to what
+          # Slack renders; nil for ordinary alerts.
+          incident: @notification.alert && IncidentNotificationPresenter.new(@notification.alert).as_json,
           read: @notification.read?,
           read_at: @notification.read_at,
           delivered_at: @notification.delivered_at,

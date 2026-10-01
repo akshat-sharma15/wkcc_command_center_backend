@@ -19,6 +19,26 @@ class RealtimeNotificationPublisher
     end
   end
 
+  # The shared incident card (IncidentNotificationPresenter) - the same
+  # content Slack renders - so the browser needs no extra fetch.
+  def self.incident_summary(notification)
+    notification.alert && IncidentNotificationPresenter.new(notification.alert).as_json
+  end
+
+  # Pushes an alert's new status/assignment to every user who received a
+  # notification for it (event "incident_update" on the existing stream).
+  def self.publish_incident_update(alert)
+    card = IncidentNotificationPresenter.new(alert).as_json
+    payload = {
+      event: "incident_update", alert_id: alert.id, status: alert.status,
+      severity: alert.severity, incident: card, updated_at: alert.updated_at.iso8601
+    }.to_json
+    redis = Redis.new(url: redis_url)
+    alert.notifications.distinct.pluck(:recipient_user_id).each { |user_id| redis.publish(channel_for(user_id), payload) }
+  ensure
+    redis&.close
+  end
+
   def self.publish(notification)
     redis = Redis.new(url: redis_url)
     payload = {
@@ -27,6 +47,9 @@ class RealtimeNotificationPublisher
       title: notification.title,
       message: notification.message,
       metadata: notification.metadata,
+      severity: notification.metadata&.dig("severity"),
+      incident: incident_summary(notification),
+      deep_link: incident_summary(notification)&.dig(:links, :incident) || IncidentLinks.notification(notification.id),
       created_at: notification.created_at.iso8601
     }.to_json
     redis.publish(channel_for(notification.recipient_user_id), payload)

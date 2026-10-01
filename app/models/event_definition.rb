@@ -11,14 +11,18 @@ class EventDefinition < OperationsRecord
       "Inbound Truck",
       "Outbound Truck",
       "Parking Space",
-      "Capacity"
+      "Capacity",
+      "Hub Congestion"
     ],
     "Fleet / Transport" => [
       "Failure of Truck with Goods Damaged",
       "Need Vehicle Replacement",
       "Route Diversion",
       "Cancel Departure",
-      "Accident"
+      "Accident",
+      "Vehicle ETA Breach Risk",
+      "Vehicle GPS Stale",
+      "Trip Missed Departure Risk"
     ],
     "Workforce" => [
       "Shift Change",
@@ -26,7 +30,8 @@ class EventDefinition < OperationsRecord
     ],
     "Sales" => [
       "Low Inbound Calls",
-      "Low Outbound Calls"
+      "Low Outbound Calls",
+      "Customer SLA Breach"
     ],
     "Finance" => [
       "Payment Dues"
@@ -36,6 +41,8 @@ class EventDefinition < OperationsRecord
   has_many :alert_rules, dependent: :nullify
 
   validates :name, presence: true, uniqueness: true
+  validates :key, uniqueness: true, allow_nil: true,
+                  format: { with: /\A[a-z0-9_]+(\.[a-z0-9_]+)+\z/, message: "must look like 'domain.event_name'" }
   validates :group, presence: true, inclusion: { in: GROUPS_AND_TYPES.keys }
   validates :event_type, presence: true
   validate :event_type_must_belong_to_group

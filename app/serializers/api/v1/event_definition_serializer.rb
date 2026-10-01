@@ -8,6 +8,7 @@ module Api
       def as_json(*)
         {
           id: @event_definition.id,
+          key: @event_definition.key,
           name: @event_definition.name,
           group: @event_definition.group,
           type: @event_definition.event_type,

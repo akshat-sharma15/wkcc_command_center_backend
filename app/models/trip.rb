@@ -3,6 +3,8 @@ class Trip < OperationsRecord
   belongs_to :origin_hub, class_name: "Hub"
   belongs_to :destination_hub, class_name: "Hub"
   has_many :packages, dependent: :nullify
+  has_many :waybills, dependent: :nullify
+  has_many :route_diversions, dependent: :restrict_with_error
 
   enum :status, {
     scheduled: "scheduled",

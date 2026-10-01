@@ -9,8 +9,16 @@ Rails.application.routes.draw do
       get "health" => "health#show"
 
       resources :vehicles
-      resources :trips
-      resources :hubs
+      resources :trips do
+        get :eta, on: :member
+      end
+      resources :hubs do
+        get "load" => "hub_loads#show"
+        # Same handlers as the fleet-monitoring hub endpoints below (one
+        # source of truth: FleetMonitoring::HubVehicleFlow).
+        get "vehicles" => "fleet_monitoring/hub_vehicles#index"
+        get "vehicle-summary" => "fleet_monitoring/hub_vehicles#summary"
+      end
       resources :warehouses
       resources :packages
       resources :finance, controller: "finance"
@@ -28,6 +36,27 @@ Rails.application.routes.draw do
       get "alert-recipients/users" => "alert_recipients#users"
 
       resources :alert_rules, path: "alert-rules"
+
+      # Alert occurrences: operational history + lifecycle actions. No
+      # destroy - alerts are never deleted.
+      resources :alerts, only: %i[index show] do
+        member do
+          post :acknowledge
+          post :assign
+          post :reassign
+          post :escalate
+          post :resolve
+        end
+      end
+
+      # Advanced incidents (IncidentCatalog) and their domain records.
+      get "incidents" => "incidents#index"
+      post "incidents/:key" => "incidents#create", constraints: { key: /[a-z0-9_.]+/ }
+      resources :route_diversions, path: "route-diversions", only: %i[index show create] do
+        get :summary, on: :collection
+        post :resolve, on: :member
+      end
+      resources :waybills, only: %i[index show]
 
       # Slack OAuth connect/status/disconnect (see
       # app/controllers/api/v1/slack_integrations_controller.rb).
@@ -61,9 +90,18 @@ Rails.application.routes.draw do
       namespace :fleet_monitoring, path: "fleet-monitoring" do
         get "vehicles" => "vehicles#index"
         get "hubs" => "hubs#index"
+        # Map hub focus: only the inbound/outbound vehicles for one hub.
+        get "hubs/:code/vehicles" => "hub_vehicles#index"
+        get "hubs/:code/vehicle-summary" => "hub_vehicles#summary"
+        get "vehicles/:pnr" => "vehicles#show"
+        get "waybills" => "waybills#index"
+        get "incidents/:id" => "incidents#show"
+        get "route-diversions" => "route_diversions#index"
+        get "route-diversions/:id" => "route_diversions#show"
         get "packages" => "packages#index"
         get "search" => "search#vehicle"
         get "search/package" => "search#package"
+        get "search/waybill" => "search#waybill"
         get "search/suggestions" => "search_suggestions#index"
       end
     end

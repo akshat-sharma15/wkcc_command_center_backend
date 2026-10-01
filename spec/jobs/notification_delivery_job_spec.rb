@@ -77,13 +77,46 @@ RSpec.describe NotificationDeliveryJob do
           notification = create(:notification, channel: "slack")
           stub_request(:post, "https://slack.com/api/chat.postMessage").to_return(
             status: 200,
-            body: { ok: false, error: "not_in_channel" }.to_json
+            body: { ok: false, error: "channel_not_found" }.to_json
           )
 
           perform(notification.id)
 
           expect(notification.reload.status).to eq("failed")
-          expect(notification.error_message).to eq("not_in_channel")
+          expect(notification.error_message).to eq("channel_not_found")
+        end
+
+        context "when Slack reports not_in_channel" do
+          it "self-heals by joining the channel and retrying once, then marks delivered" do
+            notification = create(:notification, channel: "slack")
+            stub_request(:post, "https://slack.com/api/chat.postMessage").to_return(
+              { status: 200, body: { ok: false, error: "not_in_channel" }.to_json },
+              { status: 200, body: { ok: true, ts: "3333.4444" }.to_json }
+            )
+            stub_request(:post, "https://slack.com/api/conversations.join")
+              .with(body: { channel: "#alerts" }.to_json)
+              .to_return(status: 200, body: { ok: true }.to_json)
+
+            perform(notification.id)
+
+            notification.reload
+            expect(notification.status).to eq("delivered")
+            expect(notification.external_reference).to eq("3333.4444")
+          end
+
+          it "marks failed with the original error when the join itself fails (e.g. a private channel)" do
+            notification = create(:notification, channel: "slack")
+            stub_request(:post, "https://slack.com/api/chat.postMessage").to_return(
+              status: 200, body: { ok: false, error: "not_in_channel" }.to_json
+            )
+            stub_request(:post, "https://slack.com/api/conversations.join")
+              .to_return(status: 200, body: { ok: false, error: "missing_scope" }.to_json)
+
+            perform(notification.id)
+
+            expect(notification.reload.status).to eq("failed")
+            expect(notification.error_message).to eq("not_in_channel")
+          end
         end
 
         it "marks failed and re-raises on a transient Slack transport failure (Sidekiq retries)" do

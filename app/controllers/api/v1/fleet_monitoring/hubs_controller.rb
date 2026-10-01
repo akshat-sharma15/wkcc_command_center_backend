@@ -9,7 +9,8 @@ module Api
       class HubsController < Api::V1::BaseController
         def index
           hubs = Hub.includes(:geo_location).order(:code)
-          render json: hubs.map { |h| ::FleetMonitoring::HubPresenter.new(h).as_json }
+          flow = ::FleetMonitoring::HubVehicleFlow.counts_by_hub
+          render json: hubs.map { |h| ::FleetMonitoring::HubPresenter.new(h, flow_counts: flow.fetch(h.id, { inbound: 0, outbound: 0 })).as_json }
         end
       end
     end
