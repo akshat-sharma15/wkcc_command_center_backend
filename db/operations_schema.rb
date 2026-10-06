@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_29_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_06_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -157,6 +157,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_29_150000) do
     t.datetime "updated_at", null: false
     t.index ["alert_id"], name: "index_notifications_on_alert_id"
     t.index ["channel"], name: "index_notifications_on_channel"
+    t.index ["recipient_user_id", "channel", "id"], name: "index_notifications_on_recipient_channel_id"
     t.index ["recipient_user_id", "read_at"], name: "index_notifications_on_recipient_user_id_and_read_at"
     t.index ["recipient_user_id"], name: "index_notifications_on_recipient_user_id"
     t.index ["status"], name: "index_notifications_on_status"

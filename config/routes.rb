@@ -69,6 +69,7 @@ Rails.application.routes.draw do
       # AlertEvaluationJob (triggered by the Alertable concern), not here.
       get "notifications" => "notifications#index"
       get "notifications/unread" => "notifications#unread"
+      get "notifications/poll" => "notifications#poll"
       get "notifications/sse-ticket" => "notifications#sse_ticket"
       get "notifications/stream" => "notifications_stream#stream"
       patch "notifications/:id/read" => "notifications#read"
