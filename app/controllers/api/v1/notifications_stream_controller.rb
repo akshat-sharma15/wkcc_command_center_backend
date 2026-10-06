@@ -1,84 +1,29 @@
 module Api
   module V1
-    # GET /api/v1/notifications/stream?ticket=...
+    # GET /api/v1/notifications/stream - DEPRECATED.
     #
-    # Kept as its own controller (not an action on NotificationsController)
-    # since ActionController::Live changes the threading model for the
-    # whole controller it's included in — isolating it here keeps that
-    # blast radius to exactly the one streaming action.
+    # This used to be an infinite Server-Sent Events stream
+    # (ActionController::Live + a Redis subscription). Each open browser tab
+    # held one Puma request thread for the life of the connection, so ~10
+    # open tabs exhausted the whole API thread pool and every endpoint
+    # (including /up) stalled. In-app notifications are now delivered by
+    # short, bounded polling of persisted notifications
+    # (GET /api/v1/notifications/poll - see NotificationsController#poll),
+    # and NotificationBell no longer opens an EventSource.
+    #
+    # The route is kept, not deleted, so a browser tab still running the old
+    # frontend bundle gets an immediate, cheap answer instead of a 404 retry
+    # loop: per the SSE spec, an EventSource receiving HTTP 204 stops
+    # reconnecting. Nothing here waits, streams or touches Redis, and the
+    # controller deliberately no longer includes ActionController::Live.
+    # Once no deployed frontend references this URL, the route and this
+    # controller (and the /sse-ticket endpoint) can be removed.
     class NotificationsStreamController < BaseController
-      include ActionController::Live
-      include SupersetUserIdentifiable
-
-      HEARTBEAT_INTERVAL = 20 # seconds
-
       def stream
-        user_id = ticket_user_id
-        return render_unidentified_user unless user_id
-
-        response.headers["Content-Type"] = "text/event-stream"
-        response.headers["Cache-Control"] = "no-cache"
-        response.headers["X-Accel-Buffering"] = "no"
-        # CORS headers for browser SSE connections from Superset frontend
-        response.headers["Access-Control-Allow-Origin"] = ENV.fetch("FRONTEND_CORS_ORIGIN", "http://localhost:9000")
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Vary"] = "Origin"
-
-        write_sse(event: "connected", data: { user_id: user_id })
-        subscribe_and_stream(user_id)
-      rescue ActionController::Live::ClientDisconnected, IOError
-        # The browser navigated away/closed the tab — normal, not an error.
-      ensure
-        response.stream.close
-      end
-
-      private
-
-      def ticket_user_id
-        payload = verify_sse_ticket(params[:ticket])
-        payload && payload["user_id"]
-      end
-
-      # redis-rb's #subscribe_with_timeout returns (without unsubscribing
-      # the connection) whenever no message arrives within `timeout` —
-      # looping around it turns that into a periodic heartbeat tick, and
-      # re-subscribing is cheap (no missed-message window worth guarding,
-      # since the durable record is the `notifications` table, not this
-      # stream — see RealtimeNotificationPublisher).
-      def subscribe_and_stream(user_id)
-        redis = Redis.new(url: RealtimeNotificationPublisher.redis_url)
-        channel = RealtimeNotificationPublisher.channel_for(user_id)
-
-        loop do
-          message_received = false
-
-          redis.subscribe_with_timeout(HEARTBEAT_INTERVAL, channel) do |on|
-            on.message do |_channel, payload|
-              message_received = true
-              data = JSON.parse(payload)
-              # Payloads may name their own event (e.g. "incident_update");
-              # plain notifications keep the "notification" event.
-              write_sse(event: data["event"] || "notification", id: data["id"], data: data)
-            end
-          end
-
-          write_sse(comment: "heartbeat") unless message_received
-        end
-      ensure
-        redis&.close
-      end
-
-      def write_sse(event: nil, id: nil, data: nil, comment: nil)
-        if comment
-          response.stream.write(": #{comment}\n\n")
-          return
-        end
-
-        lines = []
-        lines << "event: #{event}" if event
-        lines << "id: #{id}" if id
-        lines << "data: #{data.to_json}"
-        response.stream.write("#{lines.join("\n")}\n\n")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Deprecation"] = "true"
+        response.headers["Link"] = "</api/v1/notifications/poll>; rel=\"successor-version\""
+        head :no_content
       end
     end
   end

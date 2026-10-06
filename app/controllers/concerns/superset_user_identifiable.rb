@@ -34,7 +34,9 @@ module SupersetUserIdentifiable
   def current_superset_user_id
     id = request.headers["X-Superset-User-Id"].presence
     raise UnidentifiedUser if id.blank?
-    raise UnidentifiedUser if SupersetDirectory.configured? && SupersetDirectory.find_user(id).blank?
+    # resolve_principal is the 60s-cached lookup - this runs on every
+    # notification poll, which must not hit Superset's DB each time.
+    raise UnidentifiedUser if SupersetDirectory.configured? && SupersetDirectory.resolve_principal("user", id).blank?
 
     id.to_i
   end
