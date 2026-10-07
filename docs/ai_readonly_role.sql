@@ -63,7 +63,9 @@ GRANT SELECT ON
   vehicle_operation_events,
   package_status_transitions,
   workforce_members,
-  alerts
+  alerts,
+  waybills,
+  route_diversions
 TO wkcc_ai_readonly;
 
 -- Rails' own bookkeeping tables - harmless migration-version metadata,

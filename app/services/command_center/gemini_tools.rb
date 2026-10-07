@@ -21,7 +21,9 @@ module CommandCenter
           (hubs, vehicles, trips, packages, orders, hub_operations_events,
           vehicle_operation_events, package_status_transitions,
           workforce_members, alerts) for operational event history,
-          package status history, or detail a view doesn't expose. Every
+          package status history, or detail a view doesn't expose. For
+          waybill / PNR questions use the waybills table (waybill_number);
+          for route diversion questions use the route_diversions table. Every
           column you reference MUST come from the source's own catalog -
           never guess a column name.
         DESC
