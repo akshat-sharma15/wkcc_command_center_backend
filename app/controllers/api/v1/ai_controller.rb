@@ -10,7 +10,10 @@ module Api
       # POST /api/v1/ai/chat
       def chat
         message = params.require(:message)
-        result = CommandCenter::AiChatService.call(message: message, session_key: params[:conversation_id])
+        # Optional Fleet Map selection (see CommandCenter::MapContext); the
+        # dashboard widget never sends it, so its turns are unchanged.
+        map_context = CommandCenter::MapContext.from_params(params[:context]&.to_unsafe_h)
+        result = CommandCenter::AiChatService.call(message: message, session_key: params[:conversation_id], map_context: map_context)
 
         render json: result, status: :ok
       rescue CommandCenter::AiChatService::ChatError => e

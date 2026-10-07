@@ -566,6 +566,69 @@ module CommandCenter
         date_columns: %w[triggered_at resolved_at created_at updated_at],
         relationships: "record_id is a LOOSE reference (not a real FK) into whichever table 'group' names - e.g. group='hubs' means record_id=hubs.id. There is no 'payment_dues' or 'alert_rules' access - those are explicitly out of scope for this chatbot.",
         example_questions: [ "How many critical alerts are open?", "What alerts are open for hubs?" ]
+      ),
+
+      "waybills" => Source.new(
+        name: "waybills", kind: :table,
+        purpose: "Waybills (transport documents) for consignments moving on a vehicle's trip. The waybill/PNR number users search for is waybill_number. Use this to answer waybill questions: which vehicle/trip carries it, origin and destination hub, package count, weight, status and expected arrival. Join to vw_vehicle_dashboard (vehicle_id) for the carrying vehicle's live position, driver and current trip.",
+        grain: "one row per waybill",
+        columns: [
+          col(:id, :integer, "Primary key."),
+          col(:waybill_number, :string, "The waybill / PNR number (e.g. 102357879008). Match it exactly, or with starts_with for a partial number."),
+          col(:vehicle_id, :integer, "Vehicle carrying the waybill (join to vw_vehicle_dashboard.vehicle_id / vehicles.id)."),
+          col(:trip_id, :integer, "Trip the waybill travels on (join to vw_route_dashboard.trip_id / trips.id)."),
+          col(:origin_hub_id, :integer, "Origin hub (join to hubs.id)."),
+          col(:destination_hub_id, :integer, "Destination hub (join to hubs.id)."),
+          col(:status, :string, "One of: draft, issued, in_transit, delivered, cancelled."),
+          col(:total_packages, :integer, "Number of packages on the waybill."),
+          col(:total_orders, :integer, "Number of distinct orders on the waybill."),
+          col(:customer_count, :integer, "Number of distinct customers (consignees) on the waybill."),
+          col(:total_weight, :decimal, "Total weight in kg."),
+          col(:declared_value, :decimal, "Declared value of the goods in INR."),
+          col(:planned_departure_at, :datetime, "Planned departure time."),
+          col(:expected_arrival_at, :datetime, "Expected arrival time at the destination hub."),
+          col(:actual_arrival_at, :datetime, "Actual arrival time; NULL until delivered."),
+          col(:created_at, :datetime, "Row creation time."),
+          col(:updated_at, :datetime, "Row last-updated time.")
+        ],
+        safe_aggregations: [],
+        date_columns: %w[planned_departure_at expected_arrival_at actual_arrival_at created_at updated_at],
+        relationships: "vehicle_id -> vw_vehicle_dashboard.vehicle_id; trip_id -> vw_route_dashboard.trip_id; origin_hub_id/destination_hub_id -> hubs.id. Query those sources in a follow-up call to resolve names/positions.",
+        example_questions: [ "What is the status of waybill 102357879008?", "Which vehicle is carrying waybill 102357879008?", "How many waybills are in transit to Indore?" ]
+      ),
+
+      "route_diversions" => Source.new(
+        name: "route_diversions", kind: :table,
+        purpose: "Operational route diversions of in-transit trips, with their calculated impact (extra distance, delay, revised ETA, affected waybills/orders, revenue risk). Use this for 'which routes/trucks are diverted' and diversion impact questions. status='active' means the diversion is in effect now.",
+        grain: "one row per route diversion",
+        columns: [
+          col(:id, :integer, "Primary key."),
+          col(:vehicle_id, :integer, "Diverted vehicle (join to vw_vehicle_dashboard.vehicle_id)."),
+          col(:trip_id, :integer, "Diverted trip (join to vw_route_dashboard.trip_id for origin/destination hub names)."),
+          col(:alert_id, :integer, "Incident alert raised for this diversion (join to alerts.id)."),
+          col(:reason, :string, "Why the vehicle was diverted."),
+          col(:status, :string, "One of: active, resolved, cancelled."),
+          col(:diverted_at, :datetime, "When the diversion started."),
+          col(:resolved_at, :datetime, "When it ended, if it has."),
+          col(:original_distance_km, :decimal, "Planned route distance in km."),
+          col(:diverted_distance_km, :decimal, "Diverted route distance in km."),
+          col(:additional_distance_km, :decimal, "Extra distance caused by the diversion, in km."),
+          col(:original_eta, :datetime, "ETA before the diversion."),
+          col(:revised_eta, :datetime, "ETA after the diversion."),
+          col(:delay_minutes, :integer, "Estimated delay in minutes (present it in hours when 60 or more)."),
+          col(:traffic_factor, :decimal, "Traffic slowdown factor applied to the diverted route (1.0 = none)."),
+          col(:fuel_impact_litres, :decimal, "Extra fuel in litres; NULL when the vehicle's fuel efficiency is unknown."),
+          col(:affected_waybills, :integer, "Waybills on the diverted trip."),
+          col(:affected_packages, :integer, "Packages on the diverted trip."),
+          col(:affected_orders, :integer, "Orders on the diverted trip."),
+          col(:revenue_risk, :decimal, "Declared value (INR) of waybills at risk of late arrival; NULL when unavailable."),
+          col(:created_at, :datetime, "Row creation time."),
+          col(:updated_at, :datetime, "Row last-updated time.")
+        ],
+        safe_aggregations: [],
+        date_columns: %w[diverted_at resolved_at original_eta revised_eta created_at updated_at],
+        relationships: "vehicle_id -> vw_vehicle_dashboard.vehicle_id; trip_id -> vw_route_dashboard.trip_id; alert_id -> alerts.id.",
+        example_questions: [ "Which routes currently have diversions?", "What is the delay caused by active diversions?", "Is truck MP09PX8893 diverted?" ]
       )
     }.freeze
 

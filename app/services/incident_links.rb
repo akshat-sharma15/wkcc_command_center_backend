@@ -9,11 +9,11 @@ module IncidentLinks
   module_function
 
   def frontend_base
-    ENV.fetch("FRONTEND_BASE_URL", "http://localhost:9000").chomp("/")
+    ENV.fetch("FRONTEND_BASE_URL", "http://182.156.33.77:9013").chomp("/")
   end
 
   def map_base
-    ENV.fetch("FLEET_MAP_BASE_URL", "http://localhost:4173").chomp("/")
+    ENV.fetch("FLEET_MAP_BASE_URL", "http://182.156.33.77:9010").chomp("/")
   end
 
   # The Command Center incident page for one Alert (all users, all

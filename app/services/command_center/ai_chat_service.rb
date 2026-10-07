@@ -75,8 +75,11 @@ module CommandCenter
     # conversation to one Superset chart's dataset. When it is present and no
     # message is given, the turn becomes the chart's opening summary, so the
     # user doesn't have to ask for one.
-    def initialize(message:, session_key: nil, chart_scope: nil)
+    # `map_context` (a CommandCenter::MapContext) is the Fleet Map's current
+    # selection; it only adds an identifier note to this turn's instruction.
+    def initialize(message:, session_key: nil, chart_scope: nil, map_context: nil)
       @chart_scope = chart_scope
+      @map_context = map_context
       @message = message.presence || @chart_scope&.summary_prompt.to_s
       @conversation = AiConversation.find_or_create_for_scope!(session_key, @chart_scope&.scope_key)
     end
@@ -161,9 +164,10 @@ module CommandCenter
     end
 
     def system_instruction
-      return SYSTEM_INSTRUCTIONS if @chart_scope.nil?
+      return "#{SYSTEM_INSTRUCTIONS}\n\n#{@chart_scope.system_instruction_addendum}" if @chart_scope
+      return "#{SYSTEM_INSTRUCTIONS}\n\n#{@map_context.system_instruction_addendum}" if @map_context
 
-      "#{SYSTEM_INSTRUCTIONS}\n\n#{@chart_scope.system_instruction_addendum}"
+      SYSTEM_INSTRUCTIONS
     end
 
     # The prompt asks the model to stay on the chart's dataset; this enforces
