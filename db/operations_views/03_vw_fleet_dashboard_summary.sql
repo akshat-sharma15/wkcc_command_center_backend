@@ -23,6 +23,7 @@ WITH vehicle_flags AS (
       SELECT 1 FROM trips t WHERE t.vehicle_id = v.id AND t.status = 'in_transit'
     ) AS on_trip
   FROM vehicles v
+  WHERE v.fleet_monitoring_poc = true -- map trucks only
 ),
 vehicle_agg AS (
   SELECT
@@ -41,12 +42,14 @@ trip_agg AS (
     COUNT(*) FILTER (WHERE status = 'delayed') AS delayed_trips,
     COUNT(*) FILTER (WHERE status = 'completed') AS completed_trips
   FROM trips
+  WHERE vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
 ),
 event_agg AS (
   SELECT
     COUNT(*) FILTER (WHERE event_type = 'BREAKDOWN') AS breakdown_count,
     COUNT(*) FILTER (WHERE event_type = 'ROUTE_DEVIATION') AS route_deviation_count
   FROM vehicle_operation_events
+  WHERE vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
 )
 SELECT
   va.total_vehicles,

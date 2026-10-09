@@ -47,14 +47,21 @@ SELECT
   o.customer_reference,
   o.status AS order_status,
   t.id AS trip_id,
-  t.vehicle_id,
-  v.number AS vehicle_number,
+  -- Truck columns are shown only for map trucks; every package row is kept so shipment
+  -- totals still agree with vw_shipment_dashboard_summary.
+  CASE WHEN v.fleet_monitoring_poc THEN t.vehicle_id END AS vehicle_id,
+  CASE WHEN v.fleet_monitoring_poc THEN v.number END AS vehicle_number,
   oh.name AS origin_hub,
   dh.name AS destination_hub,
   t.status AS trip_status,
   COALESCE(paa.open_alert_count, 0) AS open_alert_count,
   COALESCE(paa.critical_alert_count, 0) AS critical_alert_count,
-  pta.latest_status_transition_at
+  pta.latest_status_transition_at,
+  oh.code AS origin_hub_code,
+  dh.code AS destination_hub_code,
+  ll.city AS location_city,
+  ll.state AS location_state,
+  CASE WHEN v.fleet_monitoring_poc THEN v.status END AS vehicle_status
 FROM packages p
 LEFT JOIN orders o ON o.id = p.order_id
 LEFT JOIN hubs lh ON p.location_type = 'Hub' AND lh.id = p.location_id
@@ -63,5 +70,6 @@ LEFT JOIN trips t ON t.id = p.trip_id
 LEFT JOIN vehicles v ON v.id = t.vehicle_id
 LEFT JOIN hubs oh ON oh.id = t.origin_hub_id
 LEFT JOIN hubs dh ON dh.id = t.destination_hub_id
+LEFT JOIN locations ll ON ll.id = lh.location_id
 LEFT JOIN package_alert_agg paa ON paa.package_id = p.id
 LEFT JOIN package_transition_agg pta ON pta.package_id = p.id;

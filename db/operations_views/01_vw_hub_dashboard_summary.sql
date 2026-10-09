@@ -39,12 +39,13 @@ WITH vehicle_agg AS (
     COUNT(*) AS total_vehicles,
     COUNT(*) FILTER (WHERE status = 'active') AS active_vehicles
   FROM vehicles
+  WHERE fleet_monitoring_poc = true -- map trucks only
   GROUP BY hub_id
 ),
 trip_touches AS (
-  SELECT origin_hub_id AS hub_id, status FROM trips
+  SELECT origin_hub_id AS hub_id, status FROM trips WHERE vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
   UNION ALL
-  SELECT destination_hub_id AS hub_id, status FROM trips
+  SELECT destination_hub_id AS hub_id, status FROM trips WHERE vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
 ),
 trip_agg AS (
   SELECT
@@ -101,11 +102,11 @@ dwell_agg AS (
 trip_touch_events AS (
   SELECT vehicle_id, destination_hub_id AS hub_id, actual_arrival_at AS touched_at, 'arrival' AS touch_type
   FROM trips
-  WHERE actual_arrival_at IS NOT NULL
+  WHERE actual_arrival_at IS NOT NULL AND vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
   UNION ALL
   SELECT vehicle_id, origin_hub_id AS hub_id, departure_at AS touched_at, 'departure' AS touch_type
   FROM trips
-  WHERE departure_at IS NOT NULL
+  WHERE departure_at IS NOT NULL AND vehicle_id IN (SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)
 ),
 turnaround_pairs AS (
   SELECT
@@ -166,8 +167,11 @@ SELECT
   da.avg_dwell_time_minutes,
   tr.avg_vehicle_turnaround_minutes,
   COALESCE(aa.open_alerts, 0) AS open_alerts,
-  COALESCE(aa.critical_alerts, 0) AS critical_alerts
+  COALESCE(aa.critical_alerts, 0) AS critical_alerts,
+  hl.city AS city,
+  hl.state AS state
 FROM hubs h
+LEFT JOIN locations hl ON hl.id = h.location_id
 LEFT JOIN vehicle_agg va ON va.hub_id = h.id
 LEFT JOIN trip_agg ta ON ta.hub_id = h.id
 LEFT JOIN package_agg pa ON pa.hub_id = h.id

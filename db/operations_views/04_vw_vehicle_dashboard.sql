@@ -87,7 +87,21 @@ SELECT
   COALESCE(vea.breakdown_count, 0) AS breakdown_count,
   COALESCE(vea.route_deviation_count, 0) AS route_deviation_count,
   COALESCE(vaa.open_alert_count, 0) AS open_alert_count,
-  COALESCE(vaa.critical_alert_count, 0) AS critical_alert_count
+  COALESCE(vaa.critical_alert_count, 0) AS critical_alert_count,
+  -- Appended (never inserted mid-list: CREATE OR REPLACE VIEW can only add columns at the end).
+  cl.city AS current_city,
+  cl.state AS current_state,
+  hl.city AS hub_city,
+  hl.state AS hub_state,
+  -- The map's own status vocabulary (FleetMonitoring::VehicleStatusResolver), so
+  -- 'in transit / parked / maintenance / damaged' filter exactly as on the map.
+  CASE
+    WHEN v.status = 'maintenance' THEN 'MAINTENANCE'
+    WHEN v.status = 'out_of_service' THEN 'DAMAGED'
+    WHEN ct.trip_id IS NOT NULL THEN 'IN TRANSIT'
+    ELSE 'PARKED'
+  END AS fleet_status,
+  (ct.trip_id IS NOT NULL) AS in_transit
 FROM vehicles v
 LEFT JOIN hubs h ON h.id = v.hub_id
 LEFT JOIN workforce_members wm ON wm.id = v.driver_id
@@ -96,4 +110,9 @@ LEFT JOIN hubs oh ON oh.id = ct.origin_hub_id
 LEFT JOIN hubs dh ON dh.id = ct.destination_hub_id
 LEFT JOIN current_trip_packages ctp ON ctp.vehicle_id = v.id
 LEFT JOIN vehicle_event_agg vea ON vea.vehicle_id = v.id
-LEFT JOIN vehicle_alert_agg vaa ON vaa.vehicle_id = v.id;
+LEFT JOIN vehicle_alert_agg vaa ON vaa.vehicle_id = v.id
+LEFT JOIN locations cl ON cl.id = v.current_location_id
+LEFT JOIN locations hl ON hl.id = h.location_id
+-- Only the map's trucks (vehicles.fleet_monitoring_poc = true), so the AI reports on
+-- exactly the fleet the map shows. Nothing is deleted; rows are just not exposed here.
+WHERE v.fleet_monitoring_poc = true;

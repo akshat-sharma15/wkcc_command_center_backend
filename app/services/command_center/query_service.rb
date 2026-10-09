@@ -158,8 +158,12 @@ module CommandCenter
 
       sql = +"SELECT #{select_sql} FROM #{quoted_table}"
 
-      if filters.any?
-        clauses = filters.map { |f| filter_clause(f, binds) }
+      clauses = filters.map { |f| filter_clause(f, binds) }
+      # Always-on and AND-ed in ahead of the model's own filters, so it cannot be filtered
+      # around: restricts raw vehicle-linked tables to the map's trucks (see
+      # SourceCatalog::MAP_VEHICLE_IDS). nil for views, which restrict themselves in SQL.
+      clauses.unshift("(#{source.base_filter})") if source.base_filter.present?
+      if clauses.any?
         sql << " WHERE #{clauses.join(' AND ')}"
         sql = number_placeholders(sql)
       end

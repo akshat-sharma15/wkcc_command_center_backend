@@ -52,10 +52,22 @@ SELECT
   COALESCE(tpa.package_count, 0) AS package_count,
   COALESCE(tpa.order_count, 0) AS order_count,
   COALESCE(tea.breakdown_count, 0) AS breakdown_count,
-  COALESCE(tea.route_deviation_count, 0) AS route_deviation_count
+  COALESCE(tea.route_deviation_count, 0) AS route_deviation_count,
+  oh.code AS origin_hub_code,
+  dh.code AS destination_hub_code,
+  ol.city AS origin_city,
+  ol.state AS origin_state,
+  dl.city AS destination_city,
+  dl.state AS destination_state,
+  v.status AS vehicle_status
 FROM trips t
 LEFT JOIN vehicles v ON v.id = t.vehicle_id
 LEFT JOIN hubs oh ON oh.id = t.origin_hub_id
 LEFT JOIN hubs dh ON dh.id = t.destination_hub_id
+LEFT JOIN locations ol ON ol.id = oh.location_id
+LEFT JOIN locations dl ON dl.id = dh.location_id
 LEFT JOIN trip_package_agg tpa ON tpa.trip_id = t.id
-LEFT JOIN trip_event_agg tea ON tea.trip_id = t.id;
+LEFT JOIN trip_event_agg tea ON tea.trip_id = t.id
+-- Only the map's trucks (vehicles.fleet_monitoring_poc = true), so the AI reports on
+-- exactly the fleet the map shows. Nothing is deleted; rows are just not exposed here.
+WHERE v.fleet_monitoring_poc = true;

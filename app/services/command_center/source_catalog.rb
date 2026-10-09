@@ -13,9 +13,22 @@ module CommandCenter
   module SourceCatalog
     Column = Struct.new(:name, :type, :description, keyword_init: true)
 
+    # The AI reports on the fleet the map shows: vehicles.fleet_monitoring_poc = true.
+    # The analytical views apply that in their own SQL (db/operations_views/*.sql); these
+    # predicates do the same for the RAW tables, which QueryService queries directly and
+    # which would otherwise list every truck. Applied by QueryService on every query, ahead
+    # of whatever filters the model asks for. Fixed trusted SQL - never built from input.
+    MAP_VEHICLE_IDS = "(SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)".freeze
+    MAP_VEHICLE_ROWS = "fleet_monitoring_poc = true".freeze
+    ON_MAP_VEHICLE = "vehicle_id IN #{MAP_VEHICLE_IDS}".freeze
+    # Rows that legitimately have no vehicle (e.g. a hub event) stay visible.
+    ON_MAP_VEHICLE_OR_NONE = "(vehicle_id IS NULL OR vehicle_id IN #{MAP_VEHICLE_IDS})".freeze
+    # Alerts about trucks carry the vehicle id in record_id; alerts about hubs, packages etc. are untouched.
+    ON_MAP_VEHICLE_ALERT = "NOT (\"group\" IN ('vehicles', 'events:vehicles') AND record_id NOT IN #{MAP_VEHICLE_IDS})".freeze
+
     Source = Struct.new(
       :name, :kind, :purpose, :grain, :columns, :safe_aggregations,
-      :date_columns, :relationships, :example_questions,
+      :date_columns, :relationships, :example_questions, :base_filter,
       keyword_init: true
     ) do
       def column_names
@@ -64,7 +77,9 @@ module CommandCenter
           col(:avg_dwell_time_minutes, :decimal, "Average minutes between a vehicle's GATE_IN and DEPARTED hub_operations_events. NULL if no such event pairs exist yet - do not guess a number when NULL."),
           col(:avg_vehicle_turnaround_minutes, :decimal, "Average minutes between a vehicle's trip arrival at this hub and its next trip departure from this hub (derived from trips, not events)."),
           col(:open_alerts, :integer, "Open alerts where alerts.group='hubs' and record_id=this hub."),
-          col(:critical_alerts, :integer, "Of open_alerts, severity=critical.")
+          col(:critical_alerts, :integer, "Of open_alerts, severity=critical."),
+          col(:city, :string, "City of the hub's location. Use with state to filter hubs by place."),
+          col(:state, :string, "State of the hub's location. Filter hubs by state.")
         ],
         safe_aggregations: %w[capacity parking_capacity available_parking parking_utilisation_pct total_vehicles active_vehicles
                                inbound_vehicle_count outbound_vehicle_count active_trips completed_trips delayed_trips
@@ -178,7 +193,13 @@ module CommandCenter
           col(:breakdown_count, :integer, "All-time BREAKDOWN vehicle_operation_events for this vehicle."),
           col(:route_deviation_count, :integer, "All-time ROUTE_DEVIATION vehicle_operation_events for this vehicle."),
           col(:open_alert_count, :integer, "Open alerts where group='vehicles' and record_id=this vehicle."),
-          col(:critical_alert_count, :integer, "Of open_alert_count, severity=critical.")
+          col(:critical_alert_count, :integer, "Of open_alert_count, severity=critical."),
+          col(:current_city, :string, "City of the vehicle's CURRENT location (not its home hub). Use to filter 'vehicles in <city>'."),
+          col(:current_state, :string, "State of the vehicle's CURRENT location. Use to filter 'vehicles in <state>'."),
+          col(:hub_city, :string, "City of the vehicle's HOME hub."),
+          col(:hub_state, :string, "State of the vehicle's HOME hub."),
+          col(:fleet_status, :string, "The map's own status for the vehicle: 'IN TRANSIT' (has an in_transit trip), 'PARKED', 'MAINTENANCE' or 'DAMAGED' (out of service). Prefer this over `status` for 'which vehicles are in transit / parked'."),
+          col(:in_transit, :boolean, "True when the vehicle currently has a trip with status in_transit.")
         ],
         safe_aggregations: %w[capacity mileage_km fuel_efficiency_kmpl package_count order_count breakdown_count route_deviation_count open_alert_count critical_alert_count],
         date_columns: %w[last_location_at departure_at expected_arrival_at actual_arrival_at],
@@ -215,7 +236,14 @@ module CommandCenter
           col(:package_count, :integer, "Packages assigned to this trip."),
           col(:order_count, :integer, "Distinct orders among those packages."),
           col(:breakdown_count, :integer, "BREAKDOWN vehicle_operation_events scoped to this trip."),
-          col(:route_deviation_count, :integer, "ROUTE_DEVIATION vehicle_operation_events scoped to this trip.")
+          col(:route_deviation_count, :integer, "ROUTE_DEVIATION vehicle_operation_events scoped to this trip."),
+          col(:origin_hub_code, :string, "Origin hub code."),
+          col(:destination_hub_code, :string, "Destination hub code."),
+          col(:origin_city, :string, "City of the origin hub."),
+          col(:origin_state, :string, "State of the origin hub."),
+          col(:destination_city, :string, "City of the destination hub."),
+          col(:destination_state, :string, "State of the destination hub."),
+          col(:vehicle_status, :string, "The assigned vehicle's status (active, maintenance, out_of_service).")
         ],
         safe_aggregations: %w[trip_duration_minutes eta_variance_minutes package_count order_count breakdown_count route_deviation_count],
         date_columns: %w[departure_at expected_arrival_at actual_arrival_at],
@@ -289,7 +317,12 @@ module CommandCenter
           col(:trip_status, :string, "Assigned trip's status."),
           col(:open_alert_count, :integer, "Open alerts where group='packages' and record_id=this package."),
           col(:critical_alert_count, :integer, "Of open_alert_count, severity=critical."),
-          col(:latest_status_transition_at, :datetime, "Most recent package_status_transitions.occurred_at for this package. NULL if no transition has been recorded yet.")
+          col(:latest_status_transition_at, :datetime, "Most recent package_status_transitions.occurred_at for this package. NULL if no transition has been recorded yet."),
+          col(:origin_hub_code, :string, "Origin hub code of the package's trip."),
+          col(:destination_hub_code, :string, "Destination hub code of the package's trip."),
+          col(:location_city, :string, "City of the hub the package is currently located at (NULL for warehouses and in-transit packages)."),
+          col(:location_state, :string, "State of the hub the package is currently located at."),
+          col(:vehicle_status, :string, "Status of the vehicle carrying the package (NULL when not on a trip).")
         ],
         safe_aggregations: %w[expected_quantity received_quantity damaged_quantity short_quantity open_alert_count critical_alert_count],
         date_columns: %w[promised_delivery_at delivered_at latest_status_transition_at],
@@ -358,6 +391,7 @@ module CommandCenter
       ),
 
       "vehicles" => Source.new(
+        base_filter: MAP_VEHICLE_ROWS,
         name: "vehicles", kind: :table,
         purpose: "Raw vehicle records. Prefer vw_vehicle_dashboard for anything operational (current trip, packages, alerts) - use this table only for a plain vehicle lookup.",
         grain: "one row per vehicle",
@@ -386,6 +420,7 @@ module CommandCenter
       ),
 
       "trips" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "trips", kind: :table,
         purpose: "Raw trip records. Prefer vw_route_dashboard for anything operational (duration, ETA variance, package counts) - use this table only for a plain trip lookup.",
         grain: "one row per trip",
@@ -461,6 +496,7 @@ module CommandCenter
       ),
 
       "hub_operations_events" => Source.new(
+        base_filter: ON_MAP_VEHICLE_OR_NONE,
         name: "hub_operations_events", kind: :table,
         purpose: "Operational event history for hubs (gate-in, unloading, scanning, sorting, loading, dispatch). Use this ONLY for drill-down into what actually happened at a hub - vw_hub_dashboard_summary already exposes the aggregated counts (inbound_vehicle_count, processed_event_count, avg_dwell_time_minutes, etc.).",
         grain: "one row per hub operational event",
@@ -484,6 +520,7 @@ module CommandCenter
       ),
 
       "vehicle_operation_events" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "vehicle_operation_events", kind: :table,
         purpose: "Operational event history for vehicles (breakdowns, route deviations). Use this ONLY for drill-down - vw_fleet_dashboard_summary/vw_vehicle_dashboard already expose breakdown_count/route_deviation_count.",
         grain: "one row per vehicle operational event",
@@ -544,6 +581,7 @@ module CommandCenter
       ),
 
       "alerts" => Source.new(
+        base_filter: ON_MAP_VEHICLE_ALERT,
         name: "alerts", kind: :table,
         purpose: "Raw alert records. Prefer the per-domain alert columns already on the views (open_alerts/critical_alerts on vw_hub_dashboard_summary, open_alert_count on vw_vehicle_dashboard/vw_shipment_dashboard) - use this table only when you need alert detail (severity, field, triggered_at) the views don't carry.",
         grain: "one row per alert",
@@ -569,6 +607,7 @@ module CommandCenter
       ),
 
       "waybills" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "waybills", kind: :table,
         purpose: "Waybills (transport documents) for consignments moving on a vehicle's trip. The waybill/PNR number users search for is waybill_number. Use this to answer waybill questions: which vehicle/trip carries it, origin and destination hub, package count, weight, status and expected arrival. Join to vw_vehicle_dashboard (vehicle_id) for the carrying vehicle's live position, driver and current trip.",
         grain: "one row per waybill",
@@ -598,6 +637,7 @@ module CommandCenter
       ),
 
       "route_diversions" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "route_diversions", kind: :table,
         purpose: "Operational route diversions of in-transit trips, with their calculated impact (extra distance, delay, revised ETA, affected waybills/orders, revenue risk). Use this for 'which routes/trucks are diverted' and diversion impact questions. status='active' means the diversion is in effect now.",
         grain: "one row per route diversion",

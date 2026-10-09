@@ -32,16 +32,20 @@ module AiChatFixtures
 
     v1 = Vehicle.create!(number: "#{VEHICLE_NUMBER_PREFIX}01", vehicle_type: "truck", status: "active",
       capacity: 2000, vendor: "Test Fleet Vendor", current_location: indore_hub.location, hub: indore_hub,
-      mileage_km: 50_000, fuel_efficiency_kmpl: 5.0)
+      mileage_km: 50_000, fuel_efficiency_kmpl: 5.0, fleet_monitoring_poc: true)
     v2 = Vehicle.create!(number: "#{VEHICLE_NUMBER_PREFIX}02", vehicle_type: "van", status: "maintenance",
       capacity: 1000, vendor: "Test Fleet Vendor", current_location: indore_hub.location, hub: indore_hub,
-      mileage_km: 70_000, fuel_efficiency_kmpl: 8.0)
+      mileage_km: 70_000, fuel_efficiency_kmpl: 8.0, fleet_monitoring_poc: true)
     v3 = Vehicle.create!(number: "#{VEHICLE_NUMBER_PREFIX}03", vehicle_type: "truck", status: "active",
       capacity: 5000, vendor: "Test Fleet Vendor", current_location: pune_hub.location, hub: pune_hub,
-      mileage_km: 90_000, fuel_efficiency_kmpl: 3.0)
+      mileage_km: 90_000, fuel_efficiency_kmpl: 3.0, fleet_monitoring_poc: true)
     v4 = Vehicle.create!(number: "#{VEHICLE_NUMBER_PREFIX}04", vehicle_type: "truck", status: "active",
       capacity: 3000, vendor: "Test Fleet Vendor", current_location: indore_hub.location, hub: indore_hub,
-      mileage_km: 60_000, fuel_efficiency_kmpl: 6.0)
+      mileage_km: 60_000, fuel_efficiency_kmpl: 6.0, fleet_monitoring_poc: true)
+    # Not a map truck (fleet_monitoring_poc: false): it exists, but the AI's views must not expose it.
+    hidden = Vehicle.create!(number: "#{VEHICLE_NUMBER_PREFIX}99", vehicle_type: "truck", status: "active",
+      capacity: 2500, vendor: "Test Fleet Vendor", current_location: indore_hub.location, hub: indore_hub,
+      mileage_km: 10_000, fuel_efficiency_kmpl: 4.0, fleet_monitoring_poc: false)
     vehicles = [ v1, v2, v3, v4 ]
 
     t_current = Trip.create!(vehicle: v4, origin_hub: indore_hub, destination_hub: pune_hub,
@@ -54,6 +58,11 @@ module AiChatFixtures
       departure_at: 5.days.ago, expected_arrival_at: 5.days.ago + 5.hours,
       actual_arrival_at: 5.days.ago + 5.hours + 10.minutes, status: "completed", route_info: "Indore -> Pune")
     trips = [ t_current, t_delayed, t_completed ]
+    # Kept out of `trips`/`packages` on purpose: they exist only so specs can prove the
+    # off-map truck's trip is hidden and its package is still counted (without the truck).
+    hidden_trip = Trip.create!(vehicle: hidden, origin_hub: indore_hub, destination_hub: pune_hub,
+      departure_at: 1.hour.ago, expected_arrival_at: 3.hours.from_now, status: "in_transit",
+      route_info: "Indore -> Pune (off-map truck)")
 
     order_pending = Order.create!(order_number: "AITEST-ORD-001", status: "pending", origin_hub: indore_hub,
       destination_hub: pune_hub, package_count: 2, promised_delivery_at: 3.days.from_now)
@@ -73,6 +82,8 @@ module AiChatFixtures
     p_overdue = Package.create!(identifier: "AITEST-PKG-005", location: indore_hub,
       expected_quantity: 3, received_quantity: 0, status: "pending", promised_delivery_at: 2.days.ago)
     packages = [ p_in_transit_1, p_in_transit_2, p_damaged, p_delivered, p_overdue ]
+    Package.create!(identifier: "AITEST-PKG-006", trip: hidden_trip, location: indore_hub,
+      expected_quantity: 2, received_quantity: 2, status: "received")
 
     VehicleOperationEvent.create!(vehicle: v4, trip: t_current, event_type: "BREAKDOWN", occurred_at: 1.hour.ago)
 
@@ -80,6 +91,9 @@ module AiChatFixtures
       operator: "=", value: "degraded", severity: "critical", enabled: true)
     Alert.create!(alert_rule: alert_rule, group: "hubs", record_id: indore_hub.id, field: "operational_status",
       expected_value: "degraded", actual_value: "degraded", severity: "critical", status: "open", triggered_at: 1.hour.ago)
+    # An alert about the off-map truck: it exists, but the AI's raw `alerts` source must not return it.
+    Alert.create!(alert_rule: alert_rule, group: "vehicles", record_id: hidden.id, field: "status",
+      expected_value: "maintenance", actual_value: "maintenance", severity: "warning", status: "open", triggered_at: 30.minutes.ago)
 
     Fixture.new(indore_hub: indore_hub, pune_hub: pune_hub, vehicles: vehicles, trips: trips, orders: orders, packages: packages)
   end
