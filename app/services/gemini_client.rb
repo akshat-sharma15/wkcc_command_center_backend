@@ -66,14 +66,24 @@ class GeminiClient
     body = { contents: contents }
     body[:tools] = [ { functionDeclarations: tools } ] if tools.present?
     body[:systemInstruction] = { parts: [ { text: system_instruction } ] } if system_instruction.present?
+    # Opt-in: a lower thinking level (e.g. "low") answers faster. Unset = the
+    # model's default, so nothing changes until it is configured and tested.
+    body[:generationConfig] = { thinkingConfig: { thinkingLevel: thinking_level } } if thinking_level.present?
 
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     response = post("/models/#{@model}:generateContent", body)
+    elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
+    Rails.logger.info("[GeminiClient] generateContent #{@model} #{elapsed_ms}ms request_bytes=#{body.to_json.bytesize}")
     JSON.parse(response.body)
   rescue JSON::ParserError => e
     raise ApiError, "Gemini returned an unparseable response: #{e.class}"
   end
 
   private
+
+  def thinking_level
+    ENV["GEMINI_THINKING_LEVEL"].presence
+  end
 
   def post(path, body)
     uri = URI("#{API_BASE}#{path}")
@@ -99,7 +109,7 @@ class GeminiClient
     raise ApiError, "Gemini API error (HTTP #{response.code}): #{error_message_from(response)}" unless response.is_a?(Net::HTTPSuccess)
 
     response
-  rescue Timeout::Error, SocketError, Net::OpenTimeout, Net::ReadTimeout => e
+  rescue Timeout::Error, SocketError, SystemCallError, IOError, OpenSSL::SSL::SSLError => e
     raise ApiError, "Gemini API request failed: #{e.class}"
   end
 

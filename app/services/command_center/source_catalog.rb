@@ -13,9 +13,23 @@ module CommandCenter
   module SourceCatalog
     Column = Struct.new(:name, :type, :description, keyword_init: true)
 
+    # In the Fleet Map chat the AI reports on the fleet the map shows:
+    # vehicles.fleet_monitoring_poc = true. QueryService applies these (map chat only)
+    # ahead of whatever filters the model asks for. Fixed trusted SQL - never built from
+    # input. Done here rather than in the SQL views because the views
+    # (db/operations_views/*.sql) also back the Superset dashboards, which report on
+    # every vehicle.
+    MAP_VEHICLE_IDS = "(SELECT id FROM vehicles WHERE fleet_monitoring_poc = true)".freeze
+    MAP_VEHICLE_ROWS = "fleet_monitoring_poc = true".freeze
+    ON_MAP_VEHICLE = "vehicle_id IN #{MAP_VEHICLE_IDS}".freeze
+    # Rows that legitimately have no vehicle (e.g. a hub event) stay visible.
+    ON_MAP_VEHICLE_OR_NONE = "(vehicle_id IS NULL OR vehicle_id IN #{MAP_VEHICLE_IDS})".freeze
+    # Alerts about trucks carry the vehicle id in record_id; alerts about hubs, packages etc. are untouched.
+    ON_MAP_VEHICLE_ALERT = "NOT (\"group\" IN ('vehicles', 'events:vehicles') AND record_id NOT IN #{MAP_VEHICLE_IDS})".freeze
+
     Source = Struct.new(
       :name, :kind, :purpose, :grain, :columns, :safe_aggregations,
-      :date_columns, :relationships, :example_questions,
+      :date_columns, :relationships, :example_questions, :base_filter,
       keyword_init: true
     ) do
       def column_names
@@ -141,6 +155,7 @@ module CommandCenter
       ),
 
       "vw_vehicle_dashboard" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "vw_vehicle_dashboard",
         kind: :view,
         purpose: "Current operational detail for every vehicle: identity, location, fleet metrics, home hub, driver, current trip, and package/order counts on that trip.",
@@ -194,6 +209,7 @@ module CommandCenter
       ),
 
       "vw_route_dashboard" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "vw_route_dashboard",
         kind: :view,
         purpose: "Trip-level detail: route, timing, duration, ETA variance, and package/order/exception counts for that trip. Trip is the route/trip source - there is no separate routes table.",
@@ -358,6 +374,7 @@ module CommandCenter
       ),
 
       "vehicles" => Source.new(
+        base_filter: MAP_VEHICLE_ROWS,
         name: "vehicles", kind: :table,
         purpose: "Raw vehicle records. Prefer vw_vehicle_dashboard for anything operational (current trip, packages, alerts) - use this table only for a plain vehicle lookup.",
         grain: "one row per vehicle",
@@ -386,6 +403,7 @@ module CommandCenter
       ),
 
       "trips" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "trips", kind: :table,
         purpose: "Raw trip records. Prefer vw_route_dashboard for anything operational (duration, ETA variance, package counts) - use this table only for a plain trip lookup.",
         grain: "one row per trip",
@@ -461,6 +479,7 @@ module CommandCenter
       ),
 
       "hub_operations_events" => Source.new(
+        base_filter: ON_MAP_VEHICLE_OR_NONE,
         name: "hub_operations_events", kind: :table,
         purpose: "Operational event history for hubs (gate-in, unloading, scanning, sorting, loading, dispatch). Use this ONLY for drill-down into what actually happened at a hub - vw_hub_dashboard_summary already exposes the aggregated counts (inbound_vehicle_count, processed_event_count, avg_dwell_time_minutes, etc.).",
         grain: "one row per hub operational event",
@@ -484,6 +503,7 @@ module CommandCenter
       ),
 
       "vehicle_operation_events" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "vehicle_operation_events", kind: :table,
         purpose: "Operational event history for vehicles (breakdowns, route deviations). Use this ONLY for drill-down - vw_fleet_dashboard_summary/vw_vehicle_dashboard already expose breakdown_count/route_deviation_count.",
         grain: "one row per vehicle operational event",
@@ -544,6 +564,7 @@ module CommandCenter
       ),
 
       "alerts" => Source.new(
+        base_filter: ON_MAP_VEHICLE_ALERT,
         name: "alerts", kind: :table,
         purpose: "Raw alert records. Prefer the per-domain alert columns already on the views (open_alerts/critical_alerts on vw_hub_dashboard_summary, open_alert_count on vw_vehicle_dashboard/vw_shipment_dashboard) - use this table only when you need alert detail (severity, field, triggered_at) the views don't carry.",
         grain: "one row per alert",
@@ -569,6 +590,7 @@ module CommandCenter
       ),
 
       "waybills" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "waybills", kind: :table,
         purpose: "Waybills (transport documents) for consignments moving on a vehicle's trip. The waybill/PNR number users search for is waybill_number. Use this to answer waybill questions: which vehicle/trip carries it, origin and destination hub, package count, weight, status and expected arrival. Join to vw_vehicle_dashboard (vehicle_id) for the carrying vehicle's live position, driver and current trip.",
         grain: "one row per waybill",
@@ -598,6 +620,7 @@ module CommandCenter
       ),
 
       "route_diversions" => Source.new(
+        base_filter: ON_MAP_VEHICLE,
         name: "route_diversions", kind: :table,
         purpose: "Operational route diversions of in-transit trips, with their calculated impact (extra distance, delay, revised ETA, affected waybills/orders, revenue risk). Use this for 'which routes/trucks are diverted' and diversion impact questions. status='active' means the diversion is in effect now.",
         grain: "one row per route diversion",
@@ -648,6 +671,13 @@ module CommandCenter
 
     def self.table_names
       TABLE_SOURCES.keys
+    end
+
+    # One line per source - its grain and exact column names - for the AI's
+    # system instruction. Without it the model has to guess column names or
+    # spend a query sampling rows, which costs a full Gemini round trip each.
+    def self.prompt_summary
+      SOURCES.values.map { |s| "- #{s.name} (#{s.grain}): #{s.column_names.join(', ')}" }.join("\n")
     end
   end
 end

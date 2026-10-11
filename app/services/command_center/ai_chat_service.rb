@@ -21,6 +21,18 @@ module CommandCenter
 
     MAX_TOOL_ITERATIONS = 5
 
+    # How many prior messages are replayed to Gemini each call. Every turn
+    # re-sends the whole history (up to MAX_TOOL_ITERATIONS times), and a
+    # turn's tool results can run to 100+ KB, so an unbounded replay is the
+    # main cause of slow answers in long conversations - see #history_for.
+    MAX_HISTORY_MESSAGES = 10
+
+    # Shown in place of any failure (Gemini down, a query error, a bug), so
+    # the chat never surfaces a raw error to the user. The real cause is logged.
+    UNAVAILABLE_ANSWER = "The AI is configured with limited context. To answer this question " \
+                         "I need more context access - if you want me to answer it, please " \
+                         "update the configuration.".freeze
+
     SYSTEM_INSTRUCTIONS = <<~PROMPT.strip
       You are the Command Centre Operations Assistant for Safexpress's
       logistics network. You answer natural-language operational
@@ -101,7 +113,7 @@ module CommandCenter
       MAX_TOOL_ITERATIONS.times do
         response = client.generate(
           contents: history + turn_contents,
-          tools: [ GeminiTools.query_command_center_declaration ],
+          tools: tool_declarations,
           system_instruction: system_instruction
         )
         parts = extract_parts(response)
@@ -128,9 +140,15 @@ module CommandCenter
       answer = "I wasn't able to finish answering that within the allowed number of steps. Please try a narrower question."
       persist_assistant_turn(answer: answer, contents: turn_contents)
       respond(answer: answer, sources: sources_used.uniq)
-    rescue GeminiClient::ApiError => e
-      Rails.logger.error("[AiChatService] Gemini API error: #{e.message}")
-      respond(answer: "The Command Centre AI assistant couldn't reach Gemini right now. Please try again shortly.", sources: [])
+    rescue ChatError
+      raise
+    rescue StandardError => e
+      Rails.logger.error(
+        "[AiChatService] chat turn failed - conversation=#{@conversation.session_key} " \
+        "message=#{@message.to_s.truncate(200).inspect} error=#{e.class}: #{e.message}\n" \
+        "#{Rails.backtrace_cleaner.clean(Array(e.backtrace)).first(10).join("\n")}"
+      )
+      respond(answer: UNAVAILABLE_ANSWER, sources: [])
     end
 
     private
@@ -140,17 +158,28 @@ module CommandCenter
       { answer: answer, conversation_id: @conversation.session_key, sources: sources }
     end
 
+    # Replays only the last MAX_HISTORY_MESSAGES messages. The latest
+    # assistant turn is replayed as its raw `steps` - the {role, parts}
+    # entries Gemini itself produced/consumed, verbatim so any
+    # thoughtSignature on a functionCall part survives, and so a follow-up
+    # like "them" can see that turn's tool results. Older assistant turns
+    # are replayed as their final text only: their tool results are what
+    # makes history large, and thought signatures are only validated for
+    # the current turn.
     def history_for(conversation)
-      conversation.ai_messages.flat_map do |m|
+      messages = conversation.ai_messages.order(:id).last(MAX_HISTORY_MESSAGES)
+      messages = messages.drop_while { |m| m.role != "user" }
+      latest_assistant = messages.reverse.find { |m| m.role != "user" }
+
+      messages.flat_map do |m|
         if m.role == "user"
           [ { role: "user", parts: [ { text: m.content } ] } ]
-        else
-          # `steps` holds the raw {role, parts} entries Gemini itself
-          # produced/consumed for this turn (see #call) - replayed
-          # verbatim so any thoughtSignature on a functionCall part
-          # survives, and so the model sees both its own tool-call trace
-          # and its final phrasing (needed for follow-ups like "them").
+        elsif m.equal?(latest_assistant) && m.steps.present?
           Array(m.steps)
+        elsif m.content.present?
+          [ { role: "model", parts: [ { text: m.content } ] } ]
+        else
+          []
         end
       end
     end
@@ -164,10 +193,12 @@ module CommandCenter
     end
 
     def system_instruction
-      return "#{SYSTEM_INSTRUCTIONS}\n\n#{@chart_scope.system_instruction_addendum}" if @chart_scope
-      return "#{SYSTEM_INSTRUCTIONS}\n\n#{@map_context.system_instruction_addendum}" if @map_context
+      base = "#{SYSTEM_INSTRUCTIONS}\n\nApproved sources and their exact columns " \
+             "(use only these column names):\n#{SourceCatalog.prompt_summary}"
+      return "#{base}\n\n#{@chart_scope.system_instruction_addendum}" if @chart_scope
+      return "#{base}\n\n#{@map_context.system_instruction_addendum}" if @map_context
 
-      SYSTEM_INSTRUCTIONS
+      base
     end
 
     # The prompt asks the model to stay on the chart's dataset; this enforces
@@ -189,7 +220,15 @@ module CommandCenter
       end
     end
 
+    # The Fleet Map chat also gets MapTools, which answer from the map's own
+    # code; the dashboard and chart chats keep just query_command_center.
+    def tool_declarations
+      [ GeminiTools.query_command_center_declaration, *(@map_context ? MapTools.declarations : []) ]
+    end
+
     def run_tool(fn_call, user_message)
+      return run_map_tool(fn_call, user_message) if @map_context && MapTools.handles?(fn_call["name"])
+
       return { error: "Unknown tool: #{fn_call['name']}" } unless fn_call["name"] == GeminiTools::QUERY_COMMAND_CENTER
 
       started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -209,13 +248,41 @@ module CommandCenter
       end
 
       begin
-        result = QueryService.call(request)
+        result = QueryService.call(request, map_fleet_only: @map_context.present?)
         log_query(user_message: user_message, request: request, result: result, started_at: started_at, success: true)
         { source: result.source, payload: result.to_h }
       rescue QueryService::ValidationError => e
         log_query(user_message: user_message, request: request, result: nil, started_at: started_at, success: false, error: e.message)
         { source: request[:source], error: e.message }
+      rescue ActiveRecord::ActiveRecordError => e
+        # A statement timeout or DB error goes back to Gemini as a tool error
+        # (so it can retry a narrower query) instead of failing the turn.
+        Rails.logger.error(
+          "[AiChatService] query failed - conversation=#{@conversation.session_key} " \
+          "request=#{request.to_json} error=#{e.class}: #{e.message}"
+        )
+        log_query(user_message: user_message, request: request, result: nil, started_at: started_at, success: false, error: "#{e.class}: #{e.message}".truncate(1000))
+        { error: "The query could not be completed. Try a narrower query (fewer columns, filters, or a lower limit)." }
       end
+    end
+
+    def run_map_tool(fn_call, user_message)
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      name = fn_call["name"]
+      request = { source: "fleet_map:#{name}", args: fn_call["args"] || {} }
+      result = MapTools.call(name, fn_call["args"])
+      log_query(user_message: user_message, request: request, result: nil, started_at: started_at,
+                success: result[:error].nil?, error: result[:error])
+      result[:error] ? { error: result[:error] } : { source: request[:source], payload: result[:payload] }
+    rescue StandardError => e
+      Rails.logger.error(
+        "[AiChatService] map tool failed - conversation=#{@conversation.session_key} " \
+        "request=#{request.to_json} error=#{e.class}: #{e.message}\n" \
+        "#{Rails.backtrace_cleaner.clean(Array(e.backtrace)).first(10).join("\n")}"
+      )
+      log_query(user_message: user_message, request: request, result: nil, started_at: started_at,
+                success: false, error: "#{e.class}: #{e.message}".truncate(1000))
+      { error: "The Fleet Map lookup could not be completed." }
     end
 
     def log_query(user_message:, request:, result:, started_at:, success:, error: nil)

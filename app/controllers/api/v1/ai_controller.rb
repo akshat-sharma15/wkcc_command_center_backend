@@ -18,6 +18,10 @@ module Api
         render json: result, status: :ok
       rescue CommandCenter::AiChatService::ChatError => e
         render json: { error: e.message }, status: :unprocessable_content
+      rescue ActionController::ParameterMissing
+        raise
+      rescue StandardError => e
+        render_unavailable(e)
       end
 
       # POST /api/v1/ai/chart_chat
@@ -47,9 +51,25 @@ module Api
         render json: result, status: :ok
       rescue CommandCenter::AiChatService::ChatError => e
         render json: { error: e.message }, status: :unprocessable_content
+      rescue ActionController::ParameterMissing
+        raise
+      rescue StandardError => e
+        render_unavailable(e)
       end
 
       private
+
+      # Anything that escapes the chat service (e.g. the database being
+      # unreachable while opening the conversation) still answers in the
+      # chat's normal shape, so the widget shows a message, never a 500.
+      def render_unavailable(error)
+        Rails.logger.error(
+          "[AiController] #{action_name} failed - conversation=#{params[:conversation_id].inspect} " \
+          "error=#{error.class}: #{error.message}\n" \
+          "#{Rails.backtrace_cleaner.clean(Array(error.backtrace)).first(10).join("\n")}"
+        )
+        render json: { answer: CommandCenter::AiChatService::UNAVAILABLE_ANSWER, conversation_id: params[:conversation_id], sources: [] }, status: :ok
+      end
 
       # Rejects the request unless the caller presents the shared secret.
       # Configuring no token at all leaves the endpoint closed rather than

@@ -70,6 +70,7 @@ module CommandCenter
             },
             order_by: {
               type: "ARRAY",
+              description: "Sort order. With an aggregation, use a group_by column or the operation name (e.g. \"count\") to sort by the aggregate - e.g. the hub with the most vehicles.",
               items: {
                 type: "OBJECT",
                 properties: {

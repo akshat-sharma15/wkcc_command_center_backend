@@ -45,12 +45,17 @@ module CommandCenter
     # request: a Hash (symbol or string keys) shaped like the
     # query_command_center tool's input schema - see
     # CommandCenter::GeminiTools.query_command_center_declaration.
-    def self.call(request)
-      new(request).call
+    # `map_fleet_only` (Fleet Map chat only) restricts vehicle-linked sources
+    # to the map's trucks via SourceCatalog::Source#base_filter. Off for the
+    # dashboard and chart chats, which report on the same rows the dashboards do.
+    # Accepts the request as a Hash or as keywords (`call(source: ...)`), as before.
+    def self.call(request = nil, map_fleet_only: false, **request_keywords)
+      new(request || request_keywords, map_fleet_only: map_fleet_only).call
     end
 
-    def initialize(request)
+    def initialize(request, map_fleet_only: false)
       @request = request.deep_symbolize_keys
+      @map_fleet_only = map_fleet_only
     end
 
     def call
@@ -59,7 +64,7 @@ module CommandCenter
       operation = validate_operation!
       filters = validate_filters!(source)
       group_by = validate_group_by!(source, select)
-      order_by = validate_order_by!(source, select, group_by)
+      order_by = validate_order_by!(source, operation, group_by)
       limit = validate_limit!
 
       sql, binds = build_sql(source: source, select: select, operation: operation,
@@ -122,13 +127,22 @@ module CommandCenter
       cols
     end
 
-    def validate_order_by!(source, select, group_by)
+    # In an aggregation, Postgres can only sort by a group_by column or by the
+    # aggregate itself (its alias is the operation name, e.g. "count") - checked
+    # here so the model gets a clear message instead of a database error.
+    def validate_order_by!(source, operation, group_by)
+      aggregate = operation != "select"
       Array(request[:order_by]).map do |o|
         o = o.deep_symbolize_keys
         column = o[:column].to_s
         direction = (o[:direction] || "asc").to_s.downcase
 
-        raise ValidationError, "Unknown order_by column on #{source.name}: #{column.inspect}" unless source.column_names.include?(column)
+        unless aggregate && column == operation
+          raise ValidationError, "Unknown order_by column on #{source.name}: #{column.inspect}" unless source.column_names.include?(column)
+          if aggregate && !group_by.include?(column)
+            raise ValidationError, "In a #{operation} query, order_by must be a group_by column or #{operation.inspect} (the aggregate itself), not #{column.inspect}"
+          end
+        end
         raise ValidationError, "Unknown order_by direction: #{direction.inspect}" unless %w[asc desc].include?(direction)
 
         { column: column, direction: direction }
@@ -158,8 +172,12 @@ module CommandCenter
 
       sql = +"SELECT #{select_sql} FROM #{quoted_table}"
 
-      if filters.any?
-        clauses = filters.map { |f| filter_clause(f, binds) }
+      clauses = filters.map { |f| filter_clause(f, binds) }
+      # Fleet Map chat only: AND-ed in ahead of the model's own filters, so it cannot be
+      # filtered around - restricts vehicle-linked sources to the map's trucks (see
+      # SourceCatalog::MAP_VEHICLE_IDS).
+      clauses.unshift("(#{source.base_filter})") if @map_fleet_only && source.base_filter.present?
+      if clauses.any?
         sql << " WHERE #{clauses.join(' AND ')}"
         sql = number_placeholders(sql)
       end

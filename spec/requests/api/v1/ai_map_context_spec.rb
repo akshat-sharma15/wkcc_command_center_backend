@@ -33,6 +33,8 @@ RSpec.describe "POST /api/v1/ai/chat with Fleet Map context", type: :request do
     )
     expect(service.send(:system_instruction)).to start_with(CommandCenter::AiChatService::SYSTEM_INSTRUCTIONS)
     expect(service.send(:system_instruction)).to include("Selected hub: Indore, code CC-HUB-016")
-    expect(CommandCenter::AiChatService.new(message: "hi").send(:system_instruction)).to eq(CommandCenter::AiChatService::SYSTEM_INSTRUCTIONS)
+    plain = CommandCenter::AiChatService.new(message: "hi").send(:system_instruction)
+    expect(plain).to start_with(CommandCenter::AiChatService::SYSTEM_INSTRUCTIONS)
+    expect(plain).not_to include("Selected hub")
   end
 end

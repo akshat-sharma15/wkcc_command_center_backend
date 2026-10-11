@@ -26,10 +26,21 @@ RSpec.describe CommandCenter::MapContext do
     expect(value.length).to be <= described_class::MAX_LENGTH
   end
 
-  it "is nil for anything that is not a usable fleet-map context" do
+  it "is nil for anything that is not a fleet-map context" do
     expect(described_class.from_params(nil)).to be_nil
     expect(described_class.from_params("source" => "dashboard", "selected_vehicle" => { "vehicle_number" => "X1" })).to be_nil
-    expect(described_class.from_params("source" => "fleet_map")).to be_nil
-    expect(described_class.from_params("source" => "fleet_map", "selected_vehicle" => "MP09")).to be_nil
+  end
+
+  it "is still a Fleet Map chat when nothing (usable) is selected" do
+    [ { "source" => "fleet_map" }, { "source" => "fleet_map", "selected_vehicle" => "MP09" } ].each do |raw|
+      context = described_class.from_params(raw)
+      expect(context).to be_empty
+      expect(context.system_instruction_addendum).to include("Fleet Map chat", "map_* tools", "Nothing is selected")
+    end
+  end
+
+  it "makes the current selection override earlier turns" do
+    context = described_class.from_params("source" => "fleet_map", "selected_hub" => { "code" => "CC-HUB-018", "name" => "Nashik" })
+    expect(context.system_instruction_addendum).to include("CURRENT map selection", "overrides", "map_hub_vehicles (hub 'CC-HUB-018')")
   end
 end

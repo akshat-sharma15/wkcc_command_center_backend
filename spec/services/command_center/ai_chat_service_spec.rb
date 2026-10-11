@@ -159,7 +159,96 @@ RSpec.describe CommandCenter::AiChatService do
 
       response = described_class.call(message: "How many vehicles are in Indore?")
 
-      expect(response[:answer]).to match(/couldn't reach Gemini/i)
+      expect(response[:answer]).to eq(described_class::UNAVAILABLE_ANSWER)
+    end
+  end
+
+  describe "unexpected failure" do
+    it "answers with the limited-context message instead of raising" do
+      allow(GeminiClient).to receive(:new).and_raise(RuntimeError, "boom")
+
+      response = described_class.call(message: "How many vehicles are in Indore?")
+
+      expect(response[:answer]).to eq(described_class::UNAVAILABLE_ANSWER)
+      expect(response[:conversation_id]).to be_present
+    end
+
+    it "returns a database error to Gemini as a tool error rather than failing the turn" do
+      stub_tool_then_answer(
+        source: "hubs", args: { source: "hubs", operation: "count" },
+        final_answer: "I don't currently have enough Command Centre data to answer that."
+      )
+      allow(CommandCenter::QueryService).to receive(:call).and_raise(ActiveRecord::QueryCanceled, "canceling statement due to statement timeout")
+
+      response = described_class.call(message: "How many hubs?")
+
+      expect(response[:answer]).to match(/don't currently have enough/i)
+      expect(AiQueryLog.last.error_message).to eq("ActiveRecord::QueryCanceled: canceling statement due to statement timeout")
+    end
+  end
+
+  describe "Fleet Map mode" do
+    let(:map_context) { CommandCenter::MapContext.from_params("source" => "fleet_map") }
+
+    it "offers the map tools only to the Fleet Map chat" do
+      stub_request(:post, endpoint).to_return(
+        status: 200, body: { candidates: [ { content: { parts: [ { text: "ok" } ], role: "model" } } ] }.to_json
+      )
+
+      described_class.call(message: "hi", map_context: map_context)
+      described_class.call(message: "hi")
+
+      tool_names = WebMock::RequestRegistry.instance.requested_signatures.hash.keys.map do |sig|
+        JSON.parse(sig.body).dig("tools", 0, "functionDeclarations").map { |d| d["name"] }
+      end
+      expect(tool_names).to contain_exactly(
+        [ "query_command_center", *CommandCenter::MapTools::NAMES ],
+        [ "query_command_center" ]
+      )
+    end
+
+    it "answers a map tool call from the map's own data and cites it" do
+      pune_code = "#{AiChatFixtures::HUB_CODE_PREFIX}PUN"
+      stub_request(:post, endpoint).to_return(
+        status: 200,
+        body: { candidates: [ { content: { parts: [ { functionCall: { name: "map_hub_vehicles", args: { hub: pune_code, direction: "inbound" } }, thoughtSignature: "sig" } ], role: "model" } } ] }.to_json
+      ).then.to_return(
+        status: 200, body: { candidates: [ { content: { parts: [ { text: "1 inbound vehicle." } ], role: "model" } } ] }.to_json
+      )
+
+      response = described_class.call(message: "inbound vehicles", map_context: map_context)
+
+      expect(response[:answer]).to eq("1 inbound vehicle.")
+      expect(response[:sources]).to eq([ "fleet_map:map_hub_vehicles" ])
+      expect(
+        a_request(:post, endpoint).with { |req| req.body.include?("functionResponse") && req.body.include?("\"vehicle_number\"") }
+      ).to have_been_made
+      expect(AiQueryLog.last).to have_attributes(source: "fleet_map:map_hub_vehicles", success: true)
+    end
+  end
+
+  describe "history replay" do
+    it "replays only the latest assistant turn's tool trace and caps older history" do
+      conversation = AiConversation.find_or_create_for_scope!(nil, nil)
+      8.times do |i|
+        AiMessage.create!(ai_conversation: conversation, role: "user", content: "question #{i}")
+        AiMessage.create!(ai_conversation: conversation, role: "assistant", content: "answer #{i}",
+                          steps: [ { role: "model", parts: [ { text: "trace #{i}" } ] } ])
+      end
+      stub_request(:post, endpoint).to_return(
+        status: 200, body: { candidates: [ { content: { parts: [ { text: "ok" } ], role: "model" } } ] }.to_json
+      )
+
+      described_class.call(message: "next", session_key: conversation.session_key)
+
+      contents = nil
+      expect(a_request(:post, endpoint).with { |req| contents = JSON.parse(req.body)["contents"] }).to have_been_made
+      text = contents.to_json
+      expect(contents.first["role"]).to eq("user")
+      expect(text).to include("trace 7")
+      expect(text).not_to include("trace 6")
+      expect(text).to include("answer 6")
+      expect(text).not_to include("question 0")
     end
   end
 

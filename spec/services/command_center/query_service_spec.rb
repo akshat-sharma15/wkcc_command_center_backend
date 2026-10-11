@@ -186,4 +186,136 @@ RSpec.describe CommandCenter::QueryService do
       }.to raise_error(described_class::ValidationError, /Unknown or unauthorized source/)
     end
   end
+
+  describe "ordering an aggregation" do
+    it "sorts by the aggregate itself" do
+      rows = described_class.call(source: "vw_vehicle_dashboard", operation: "count", group_by: %w[hub_name],
+        order_by: [ { column: "count", direction: "desc" } ]).rows
+      counts = rows.map { |r| r["count"].to_i }
+      expect(counts).to eq(counts.sort.reverse)
+    end
+
+    it "rejects a non-grouped order_by column with a validation error, not a database error" do
+      expect {
+        described_class.call(source: "vw_route_dashboard", operation: "count", group_by: %w[destination_hub],
+          order_by: [ { column: "trip_id", direction: "desc" } ])
+      }.to raise_error(described_class::ValidationError, /order_by must be a group_by column/)
+    end
+  end
+
+  describe "filter dimensions on the row-level views" do
+    let(:prefix) { AiChatFixtures::VEHICLE_NUMBER_PREFIX }
+
+    it "filters by hub and by date on the row-level views" do
+      by_hub = described_class.call(source: "vw_vehicle_dashboard", select: %w[vehicle_number hub_code],
+        filters: [ { column: "vehicle_number", operator: "starts_with", value: prefix },
+                   { column: "hub_name", operator: "contains", value: "Indore" } ], limit: 50).rows
+      expect(by_hub).not_to be_empty
+
+      dated = described_class.call(source: "vw_route_dashboard", operation: "count",
+        filters: [ { column: "departure_at", operator: "between", value: [ 10.years.ago.iso8601, 1.day.from_now.iso8601 ] } ]).rows.first
+      expect(dated["count"].to_i).to be >= 0
+    end
+  end
+
+  # Fleet Map chat only (map_fleet_only: true); the dashboard and chart chats query unfiltered.
+  def map_call(request = nil, **kw)
+    described_class.call(request || kw, map_fleet_only: true)
+  end
+
+  describe "dashboard and chart chats (no map filter)" do
+    it "return the same rows the dashboards do, including off-map trucks" do
+      hidden_number = "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}99"
+      rows = described_class.call(source: "vw_vehicle_dashboard", select: %w[vehicle_number],
+        filters: [ { column: "vehicle_number", operator: "equals", value: hidden_number } ]).rows
+      expect(rows.map { |r| r["vehicle_number"] }).to eq([ hidden_number ])
+      expect(described_class.call(source: "vehicles", operation: "count").rows.first["count"].to_i).to eq(Vehicle.count)
+    end
+  end
+
+  # The AI must report on the fleet the map shows (vehicles.fleet_monitoring_poc = true).
+  # The SQL views themselves are untouched (they also back the Superset dashboards), so
+  # in the Fleet Map chat QueryService applies the restriction via Source#base_filter.
+  # AITEST-VEH-99 is an off-map truck with a trip.
+  describe "row-level views expose only the map's trucks" do
+    let(:hidden_number) { "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}99" }
+    let(:shown_number) { "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}01" }
+
+    def rows(source, select, filters = [], **opts)
+      map_call({ source: source, select: select, filters: filters, limit: 500 }.merge(opts)).rows
+    end
+
+    it "keeps the off-map truck in the database but out of the vehicle view" do
+      expect(Vehicle.exists?(number: hidden_number)).to be(true)
+      expect(rows("vw_vehicle_dashboard", %w[vehicle_number], [ { column: "vehicle_number", operator: "equals", value: hidden_number } ])).to be_empty
+      expect(rows("vw_vehicle_dashboard", %w[vehicle_number], [ { column: "vehicle_number", operator: "equals", value: shown_number } ])).not_to be_empty
+    end
+
+    it "drops the off-map truck's trips from the route view" do
+      hidden = Vehicle.find_by!(number: hidden_number)
+      expect(Trip.where(vehicle_id: hidden.id)).to exist
+      expect(rows("vw_route_dashboard", %w[vehicle_id]).map { |r| r["vehicle_id"] }).not_to include(hidden.id)
+    end
+
+    it "counts only map trucks in aggregates over the vehicle view" do
+      counted = map_call(source: "vw_vehicle_dashboard", operation: "count").rows.first["count"].to_i
+      expect(counted).to eq(Vehicle.fleet_monitoring_poc.count)
+    end
+
+    it "leaves the summary views network-wide, as the Superset dashboards expect" do
+      row = rows("vw_fleet_dashboard_summary", %w[total_vehicles]).first
+      expect(row["total_vehicles"].to_i).to eq(Vehicle.count)
+      total = map_call(source: "vw_shipment_dashboard", operation: "count").rows.first["count"].to_i
+      expect(total).to eq(Package.count)
+    end
+  end
+
+  # Raw tables are queried directly (no view), so QueryService applies the map-fleet filter itself
+  # (SourceCatalog::Source#base_filter). Without it the AI could list every truck via `vehicles`.
+  describe "raw tables expose only the map's trucks" do
+    let(:hidden_number) { "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}99" }
+    let(:shown_number) { "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}01" }
+    let(:hidden) { Vehicle.find_by!(number: hidden_number) }
+
+    def raw(source, select, filters = [], **opts)
+      map_call({ source: source, select: select, filters: filters, limit: 500 }.merge(opts)).rows
+    end
+
+    it "does not return the off-map truck from the raw vehicles table, however it is asked for" do
+      expect(Vehicle.exists?(number: hidden_number)).to be(true)
+      expect(raw("vehicles", %w[number], [ { column: "id", operator: "equals", value: hidden.id } ])).to be_empty
+      expect(raw("vehicles", %w[number], [ { column: "number", operator: "contains", value: hidden_number } ])).to be_empty
+      expect(raw("vehicles", %w[number]).map { |r| r["number"] }).not_to include(hidden_number)
+    end
+
+    it "counts only map trucks in aggregates over the raw table" do
+      counted = map_call(source: "vehicles", operation: "count").rows.first["count"].to_i
+      expect(counted).to eq(Vehicle.fleet_monitoring_poc.count)
+      expect(counted).to be < Vehicle.count
+    end
+
+    it "hides the off-map truck's trips, waybills and events" do
+      expect(Trip.where(vehicle_id: hidden.id)).to exist
+      expect(raw("trips", %w[vehicle_id]).map { |r| r["vehicle_id"] }).not_to include(hidden.id)
+      expect(raw("waybills", %w[vehicle_id]).map { |r| r["vehicle_id"] }).not_to include(hidden.id)
+      expect(raw("vehicle_operation_events", %w[vehicle_id]).map { |r| r["vehicle_id"] }).not_to include(hidden.id)
+    end
+
+    it "hides alerts about the off-map truck but keeps every other alert" do
+      expect(Alert.where(group: "vehicles", record_id: hidden.id)).to exist
+      records = raw("alerts", %w[group record_id])
+      expect(records).not_to include(include("group" => "vehicles", "record_id" => hidden.id))
+      expect(records).to include(include("group" => "hubs")) # the hub alert from the fixtures is untouched
+    end
+
+    it "keeps a map truck fully reachable, so the filter does not over-reach" do
+      expect(raw("vehicles", %w[number], [ { column: "number", operator: "equals", value: shown_number } ]).map { |r| r["number"] }).to eq([ shown_number ])
+    end
+
+    it "cannot be widened by the model's own filters (the restriction is AND-ed in)" do
+      rows = raw("vehicles", %w[number], [ { column: "number", operator: "starts_with", value: AiChatFixtures::VEHICLE_NUMBER_PREFIX } ])
+      expect(rows.map { |r| r["number"] }).not_to include(hidden_number)
+      expect(rows.size).to eq(Vehicle.fleet_monitoring_poc.where("number LIKE ?", "#{AiChatFixtures::VEHICLE_NUMBER_PREFIX}%").count)
+    end
+  end
 end
