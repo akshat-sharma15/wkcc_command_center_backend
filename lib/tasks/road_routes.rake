@@ -1,7 +1,8 @@
 # Fills the road_routes table for every in-transit map trip, so the map's
 # routes and truck movement come from the database instead of the Google
-# Routes API. Calls Google only for routes not stored yet (or stale), one per
-# distinct route - trucks sharing a route share one call. Safe to re-run.
+# Routes API. Calls Google only for routes not stored yet (or stale) - about
+# one per in-transit truck the first time, then none until positions change
+# or routes age out. Safe to re-run.
 #
 #   bin/rails fleet_monitoring:road_routes:prefetch
 namespace :fleet_monitoring do

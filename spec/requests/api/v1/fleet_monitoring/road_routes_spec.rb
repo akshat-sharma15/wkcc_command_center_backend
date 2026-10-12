@@ -32,10 +32,24 @@ RSpec.describe "Api::V1::FleetMonitoring road routes", type: :request do
     expect(a_request(:post, google).with(headers: { "X-Goog-Api-Key" => "test-routes-key", "X-Goog-FieldMask" => GoogleRoutesClient::FIELD_MASK })).to have_been_made
   end
 
-  it "shares one stored route between trucks on the same route" do
+  it "asks Google for origin hub -> truck position -> destination hub, as the map did" do
     corridor = build_corridor
-    other_vehicle = create(:vehicle, fleet_monitoring_poc: true)
-    other_trip = create(:trip, vehicle: other_vehicle, origin_hub: corridor[:origin], destination_hub: corridor[:destination], status: "in_transit")
+    stub_request(:post, google).to_return(status: 200, body: route_body)
+
+    route_for(corridor[:trip])
+
+    expect(a_request(:post, google).with { |req|
+      body = JSON.parse(req.body)
+      ll = ->(p) { p.dig("location", "latLng").values_at("latitude", "longitude") }
+      ll.(body["origin"]) == [ 22.7196, 75.8577 ] && ll.(body["destination"]) == [ 23.3315, 75.0367 ] &&
+        body["intermediates"].map { |p| [ *ll.(p), p["via"] ] } == [ [ 23.1765, 75.7885, true ] ] && body["travelMode"] == "DRIVE"
+    }).to have_been_made.once
+  end
+
+  it "shares one stored route between trucks at the same spot, and serves them all in one batch" do
+    corridor = build_corridor
+    same_spot = create(:vehicle, fleet_monitoring_poc: true, current_location_id: corridor[:ujjain].id)
+    other_trip = create(:trip, vehicle: same_spot, origin_hub: corridor[:origin], destination_hub: corridor[:destination], status: "in_transit")
     stub_request(:post, google).to_return(status: 200, body: route_body)
 
     route_for(corridor[:trip])

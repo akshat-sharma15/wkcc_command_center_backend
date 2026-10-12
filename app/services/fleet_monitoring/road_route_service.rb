@@ -1,8 +1,9 @@
 # Road paths for the Fleet Map's in-transit trucks ("Show route" and the
-# live movement animation). A trip's route is its CURRENT route from
-# EtaImpactService - origin hub -> via waypoint -> destination hub, or an
-# active diversion's path - so every truck on the same route shares one
-# stored path, whatever its own position.
+# live movement animation). The request is exactly the one the map used to
+# send to Google from the browser - origin hub -> the truck's position (as a
+# pass-through point) -> destination hub - so routes look the same as
+# before. Truck positions are static in the database, so each truck's route
+# is fetched once and then served from road_routes to every viewer.
 #
 #   stored and fresh  -> served from road_routes (no Google call)
 #   missing or stale  -> one Google Routes API call, then stored
@@ -17,8 +18,7 @@ module FleetMonitoring
     # { route_key => encoded_polyline } for the given trips' routes that are
     # already stored, plus { trip_id => route_key }. Never calls Google.
     def self.stored_for(trips)
-      diversions = RouteDiversion.active.where(trip_id: trips.map(&:id)).order(diverted_at: :desc).group_by(&:trip_id)
-      keys = trips.to_h { |trip| [ trip.id, waypoints_for(trip, diversion: diversions[trip.id]&.first) ] }
+      keys = trips.to_h { |trip| [ trip.id, waypoints_for(trip) ] }
                   .transform_values { |points| points && RoadRoute.key_for(points) }.compact
       polylines = RoadRoute.where(route_key: keys.values.uniq).pluck(:route_key, :encoded_polyline).to_h
       { routes: polylines, trips: keys.select { |_, key| polylines.key?(key) } }
@@ -50,13 +50,20 @@ module FleetMonitoring
       stored
     end
 
-    # origin -> via -> destination as [{ lat:, lng: }], or nil when the trip
-    # lacks the coordinates for a route.
-    # `diversion:` as for EtaImpactService (batch callers preload it).
-    def self.waypoints_for(trip, diversion: :lookup)
-      points = EtaImpactService.new(trip, vehicle: trip.vehicle, diversion: diversion).current_route.map { |p| p.to_h.symbolize_keys.slice(:lat, :lng) }
-      points = points.select { |p| p[:lat] && p[:lng] }
-      points.size >= 2 ? points : nil
+    # origin hub -> truck position -> destination hub as [{ lat:, lng: }] -
+    # the same points (and the same truck position) VehiclePresenter gives the
+    # map - or nil when the trip lacks the hub coordinates for a route.
+    def self.waypoints_for(trip)
+      origin = EtaImpactService.hub_point(trip.origin_hub)
+      destination = EtaImpactService.hub_point(trip.destination_hub)
+      return nil unless origin && destination
+
+      vehicle = trip.vehicle
+      location = vehicle.current_geo_location
+      lat = location&.latitude || vehicle.last_known_latitude
+      lng = location&.longitude || vehicle.last_known_longitude
+      truck = lat && lng ? { lat: lat.to_f, lng: lng.to_f } : nil
+      [ origin, truck, destination ].compact.map { |p| p.slice(:lat, :lng) }
     end
 
     def self.save(key, points, result)
