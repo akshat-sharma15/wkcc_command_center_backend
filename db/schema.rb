@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_27_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_12_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -62,6 +62,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_27_120000) do
     t.datetime "updated_at", null: false
     t.index ["name"], name: "index_api_clients_on_name", unique: true
     t.index ["token_digest"], name: "index_api_clients_on_token_digest", unique: true
+  end
+
+  create_table "road_routes", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.integer "distance_meters"
+    t.text "encoded_polyline", null: false
+    t.datetime "fetched_at", null: false
+    t.string "route_key", null: false
+    t.datetime "updated_at", null: false
+    t.jsonb "waypoints", default: [], null: false
+    t.index ["route_key"], name: "index_road_routes_on_route_key", unique: true
   end
 
   add_foreign_key "ai_messages", "ai_conversations"

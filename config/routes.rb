@@ -104,6 +104,9 @@ Rails.application.routes.draw do
         get "search/package" => "search#package"
         get "search/waybill" => "search#waybill"
         get "search/suggestions" => "search_suggestions#index"
+        # Stored road paths for the map's in-transit trucks (Google Routes API, fetched once).
+        get "road-routes" => "road_routes#index"
+        get "trips/:trip_id/road-route" => "road_routes#show"
       end
     end
   end
