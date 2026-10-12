@@ -46,6 +46,25 @@ RSpec.describe "Api::V1::FleetMonitoring road routes", type: :request do
     }).to have_been_made.once
   end
 
+  it "routes a diverted truck through its diversion waypoint, and stores it separately" do
+    corridor = build_corridor
+    stub_request(:post, google).to_return(status: 200, body: route_body)
+    route_for(corridor[:trip])
+    create(:route_diversion, trip: corridor[:trip]) # diverted via Dhar (22.6013, 75.3025)
+
+    route_for(corridor[:trip])
+
+    ll = ->(p) { p.dig("location", "latLng").values_at("latitude", "longitude") }
+    vias = WebMock::RequestRegistry.instance.requested_signatures.hash.keys.map { |sig| JSON.parse(sig.body)["intermediates"].map(&ll) }
+    expect(vias).to contain_exactly(
+      [ [ 23.1765, 75.7885 ] ],                       # before the diversion: origin -> truck -> destination
+      [ [ 22.6013, 75.3025 ], [ 23.1765, 75.7885 ] ]  # diverted: origin -> Dhar -> truck -> destination
+    )
+    expect(RoadRoute.count).to eq(2)
+    get "/api/v1/fleet-monitoring/road-routes", headers: authenticated_headers
+    expect(response.parsed_body["trips"][corridor[:trip].id.to_s]).to eq(RoadRoute.order(:id).last.route_key)
+  end
+
   it "shares one stored route between trucks at the same spot, and serves them all in one batch" do
     corridor = build_corridor
     same_spot = create(:vehicle, fleet_monitoring_poc: true, current_location_id: corridor[:ujjain].id)

@@ -2,8 +2,10 @@
 # live movement animation). The request is exactly the one the map used to
 # send to Google from the browser - origin hub -> the truck's position (as a
 # pass-through point) -> destination hub - so routes look the same as
-# before. Truck positions are static in the database, so each truck's route
-# is fetched once and then served from road_routes to every viewer.
+# before. A diverted truck's route also passes through its active
+# diversion's waypoint(s), so it follows the diversion. Truck positions are
+# static in the database, so each truck's route is fetched once and then
+# served from road_routes to every viewer.
 #
 #   stored and fresh  -> served from road_routes (no Google call)
 #   missing or stale  -> one Google Routes API call, then stored
@@ -18,7 +20,8 @@ module FleetMonitoring
     # { route_key => encoded_polyline } for the given trips' routes that are
     # already stored, plus { trip_id => route_key }. Never calls Google.
     def self.stored_for(trips)
-      keys = trips.to_h { |trip| [ trip.id, waypoints_for(trip) ] }
+      diversions = RouteDiversion.active.where(trip_id: trips.map(&:id)).order(diverted_at: :desc).group_by(&:trip_id)
+      keys = trips.to_h { |trip| [ trip.id, waypoints_for(trip, diversion: diversions[trip.id]&.first) ] }
                   .transform_values { |points| points && RoadRoute.key_for(points) }.compact
       polylines = RoadRoute.where(route_key: keys.values.uniq).pluck(:route_key, :encoded_polyline).to_h
       { routes: polylines, trips: keys.select { |_, key| polylines.key?(key) } }
@@ -52,8 +55,11 @@ module FleetMonitoring
 
     # origin hub -> truck position -> destination hub as [{ lat:, lng: }] -
     # the same points (and the same truck position) VehiclePresenter gives the
-    # map - or nil when the trip lacks the hub coordinates for a route.
-    def self.waypoints_for(trip)
+    # map - or nil when the trip lacks the hub coordinates for a route. With
+    # an active diversion, its via waypoint(s) are added, with the truck placed
+    # before or after each one by how close it is to the destination.
+    # `diversion:` may be passed (batch callers preload it; nil = none).
+    def self.waypoints_for(trip, diversion: :lookup)
       origin = EtaImpactService.hub_point(trip.origin_hub)
       destination = EtaImpactService.hub_point(trip.destination_hub)
       return nil unless origin && destination
@@ -63,7 +69,16 @@ module FleetMonitoring
       lat = location&.latitude || vehicle.last_known_latitude
       lng = location&.longitude || vehicle.last_known_longitude
       truck = lat && lng ? { lat: lat.to_f, lng: lng.to_f } : nil
-      [ origin, truck, destination ].compact.map { |p| p.slice(:lat, :lng) }
+
+      diversion = trip.route_diversions.active.order(diverted_at: :desc).first if diversion == :lookup
+      vias = diversion ? diversion_vias(diversion) : []
+      ahead, behind = truck ? vias.partition { |p| GeoDistance.km(p, destination) < GeoDistance.km(truck, destination) } : [ [], vias ]
+      [ origin, *behind, truck, *ahead, destination ].compact.map { |p| p.slice(:lat, :lng) }
+    end
+
+    # The diverted path's waypoints between its two ends.
+    def self.diversion_vias(diversion)
+      Array(diversion.diverted_path)[1...-1].to_a.map { |p| p.to_h.symbolize_keys.slice(:lat, :lng).transform_values(&:to_f) }
     end
 
     def self.save(key, points, result)
@@ -80,6 +95,6 @@ module FleetMonitoring
       "road_route:failed:#{key}"
     end
 
-    private_class_method :save, :failure_cache_key
+    private_class_method :save, :failure_cache_key, :diversion_vias
   end
 end
