@@ -82,6 +82,24 @@ RSpec.describe "Api::V1::FleetMonitoring road routes", type: :request do
     expect(body["trips"].values.uniq).to eq(body["routes"].keys)
   end
 
+  it "retries with the truck as a stopover when Google finds no route through it, and only then" do
+    trip = build_corridor[:trip]
+    stub_request(:post, google).to_return(status: 200, body: "{}").then.to_return(status: 200, body: route_body)
+
+    expect(route_for(trip)["encoded_polyline"]).to eq("_p~iF~ps|U_ulLnnqC")
+
+    bodies = WebMock::RequestRegistry.instance.requested_signatures.hash.keys.map { |sig| JSON.parse(sig.body) }
+    expect(bodies.map { |b| b["intermediates"].first.key?("via") }).to contain_exactly(true, false)
+    expect(RoadRoute.count).to eq(1)
+  end
+
+  it "does not retry on a quota error" do
+    trip = build_corridor[:trip]
+    stub_request(:post, google).to_return(status: 429, body: { error: { message: "Quota exceeded" } }.to_json)
+    expect(route_for(trip)).to be_nil
+    expect(a_request(:post, google)).to have_been_made.once
+  end
+
   it "never calls Google from the batch endpoint" do
     build_corridor
     get "/api/v1/fleet-monitoring/road-routes", headers: authenticated_headers

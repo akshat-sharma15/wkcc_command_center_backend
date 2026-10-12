@@ -12,6 +12,8 @@ class GoogleRoutesClient
   REQUEST_TIMEOUT = 15
 
   ApiError = Class.new(StandardError)
+  # Google answered, but has no route through these waypoints.
+  NoRouteError = Class.new(ApiError)
 
   def self.configured?
     ENV["GOOGLE_ROUTES_API_KEY"].present?
@@ -24,20 +26,22 @@ class GoogleRoutesClient
   end
 
   # waypoints: [{ lat:, lng: }, ...] - first is the origin, last the
-  # destination, any in between are pass-through (via) points.
+  # destination, any in between are pass-through (via) points, or stopovers
+  # with `via: false` (Google snaps a stopover to the nearest road, so it
+  # finds a route where an off-road pass-through point gets none).
   # Returns { encoded_polyline:, distance_meters: }.
-  def compute_route(waypoints)
+  def compute_route(waypoints, via: true)
     raise ArgumentError, "a route needs at least 2 waypoints" if waypoints.size < 2
 
     body = {
       origin: location(waypoints.first),
       destination: location(waypoints.last),
-      intermediates: waypoints[1...-1].map { |p| location(p).merge(via: true) },
+      intermediates: waypoints[1...-1].map { |p| via ? location(p).merge(via: true) : location(p) },
       travelMode: "DRIVE"
     }
     route = post(body).dig("routes", 0)
     polyline = route&.dig("polyline", "encodedPolyline")
-    raise ApiError, "Google Routes API returned no route" if polyline.blank?
+    raise NoRouteError, "Google Routes API returned no route" if polyline.blank?
 
     { encoded_polyline: polyline, distance_meters: route["distanceMeters"] }
   end

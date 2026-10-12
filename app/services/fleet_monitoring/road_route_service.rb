@@ -8,7 +8,9 @@
 # served from road_routes to every viewer.
 #
 #   stored and fresh  -> served from road_routes (no Google call)
-#   missing or stale  -> one Google Routes API call, then stored
+#   missing or stale  -> one Google Routes API call, then stored (a second
+#                        call, with the truck as a stopover, only when Google
+#                        finds no route through it as a pass-through point)
 #   Google fails      -> the stale copy if there is one, else nil (the map
 #                        then draws its direct-line fallback); the route is
 #                        not retried for FAILURE_BACKOFF, so a failing API
@@ -45,7 +47,15 @@ module FleetMonitoring
       return stored unless GoogleRoutesClient.configured?
       return stored if Rails.cache.exist?(failure_cache_key(key))
 
-      result = GoogleRoutesClient.new.compute_route(points)
+      client = GoogleRoutesClient.new
+      result = begin
+        client.compute_route(points)
+      rescue GoogleRoutesClient::NoRouteError
+        # A truck parked off the road gives no route as a pass-through point;
+        # as a stopover Google snaps it to the nearest road. Only on "no route",
+        # never on a quota or other error.
+        client.compute_route(points, via: false)
+      end
       save(key, points, result)
     rescue GoogleRoutesClient::ApiError => e
       Rails.logger.error("[RoadRouteService] route #{key} (#{points.size} waypoints) failed: #{e.message}")
