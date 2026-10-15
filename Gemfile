@@ -32,7 +32,7 @@ gem "redis", "~> 5.3"
 # Background jobs (event ingestion, simulator, notifications in later stages).
 # Pinned: Sidekiq 7.3.x's scheduler thread breaks silently against
 # connection_pool 3.0+ (keyword-only `pop` vs Sidekiq's positional call).
-gem "sidekiq", "~> 7.3"
+gem "sidekiq", "~> 8.0"
 gem "connection_pool", "~> 2.5"
 
 # Lightweight pagination for index actions.
